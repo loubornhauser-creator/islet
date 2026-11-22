@@ -18,5 +18,11 @@
     <string>Islet zeigt deine nächsten Termine in der Insel. Es liest nur und ändert nichts.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Islet zeigt deine nächsten Termine in der Insel. Es liest nur und ändert nichts.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Islet zeigt deine offenen Erinnerungen in der Insel und kann sie auf Wunsch abhaken.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Islet zeigt deine offenen Erinnerungen in der Insel und kann sie auf Wunsch abhaken.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Islet nutzt die Kamera nur für Face Unlock, nur während eines Scans. Es werden keine Bilder gespeichert.</string>
 </dict>
 </plist>

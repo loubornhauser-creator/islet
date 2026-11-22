@@ -35,10 +35,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
             return true
         }
+        if let path = value("--snapshot-cleaning") {
+            CleaningLock.shared.endDate = Date().addingTimeInterval(105)
+            let dim = value("--dim") != nil
+            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: dim ? 720 : 420, height: dim ? 420 : 170), styleMask: [.borderless], backing: .buffered, defer: false)
+            win.backgroundColor = NSColor(white: 0.3, alpha: 1)
+            let host = NSHostingView(rootView: CleaningView(dim: dim))
+            win.contentView = host
+            win.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
+            return true
+        }
         guard let path = value("--snapshot") else { return false }
         IslandGeometry.shared.notchWidth = 200
         IslandGeometry.shared.notchHeight = 34
-        IslandState.shared.expanded = true
+        IslandState.shared.openImmediately()
         if let t = value("--tab"), let tab = IslandTab(rawValue: t) { IslandState.shared.tab = tab }
         if value("--clip") != nil {
             Clipboard.shared.items = ["https://github.com/loubornhauser-creator/islet", "swift build -c release", "Termin mit Lena am Montag um 14 Uhr", "ssh deploy@server"].map { ClipItem(text: $0, date: Date().addingTimeInterval(-120)) }
@@ -59,7 +70,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    symbol: "airpodspro")
             Devices.shared.connected = [airpods, BTDevice(name: "Magic Mouse", kind: "Mouse", batteries: [BTBattery(id: "M", label: "Akku", percent: 72)], symbol: "magicmouse.fill")]
         }
-        let w = Pref.double("expandedWidth"), h = Pref.double("expandedHeight")
+        if value("--claude") != nil {
+            let now = Date()
+            ClaudeUsage.shared.state = .ok
+            ClaudeUsage.shared.plan = "Max"
+            ClaudeUsage.shared.updated = now
+            ClaudeUsage.shared.windows = [
+                UsageWindow(title: "Session (5 Stunden)", percent: 37, resetsAt: now.addingTimeInterval(2 * 3600 + 14 * 60)),
+                UsageWindow(title: "Woche (7 Tage)", percent: 78, resetsAt: now.addingTimeInterval(3 * 86400)),
+                UsageWindow(title: "Woche Opus", percent: 93, resetsAt: now.addingTimeInterval(3 * 86400)),
+            ]
+        }
+        if value("--rem") != nil {
+            let now = Date()
+            CalendarModule.shared.reminderStatus = .fullAccess
+            CalendarModule.shared.reminders = [
+                ReminderItem(id: "r1", title: "Rechnung an Frames schicken", due: now.addingTimeInterval(-2 * 86400), hasTime: false, list: "Arbeit", color: .red, priority: 1),
+                ReminderItem(id: "r2", title: "Zahnarzt anrufen", due: now.addingTimeInterval(3600), hasTime: true, list: "Privat", color: .blue, priority: 0),
+                ReminderItem(id: "r3", title: "Geschenk für Mama bestellen", due: now.addingTimeInterval(86400), hasTime: false, list: "Privat", color: .blue, priority: 0),
+            ]
+        }
+        let w = Double(IslandGeometry.shared.expandedWidth), h = Double(IslandGeometry.shared.expandedHeight)
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w + 40, height: h + 20),
                            styleMask: [.borderless], backing: .buffered, defer: false)
         win.backgroundColor = NSColor(white: 0.35, alpha: 1)
@@ -133,6 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let on = toggled("modIndicators") { on ? Indicators.shared.start() : Indicators.shared.stop() }
         if let on = toggled("modCalendar") { on ? CalendarModule.shared.start() : CalendarModule.shared.stop() }
         if let on = toggled("modDevices") { on ? Devices.shared.start() : Devices.shared.stop() }
+        if let on = toggled("modClaude") { on ? ClaudeUsage.shared.start() : ClaudeUsage.shared.stop() }
+        if let on = toggled("modFace") { on ? FaceUnlock.shared.start() : FaceUnlock.shared.stop() }
         CalendarModule.shared.reloadIfSettingsChanged()
 
         Hotkey.shared.apply(Pref.string("hotkey"))
@@ -225,6 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.image = NSImage(systemSymbolName: "capsule.fill", accessibilityDescription: "Islet")
         let menu = NSMenu()
         menu.addItem(withTitle: "Insel öffnen/schließen", action: #selector(toggleIsland), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Tastatur reinigen", action: #selector(startCleaning), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Einstellungen …", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Islet beenden", action: #selector(quit), keyEquivalent: "q").target = self
@@ -234,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() { SettingsWindow.show() }
     @objc private func toggleIsland() { IslandState.shared.toggle() }
+    @objc private func startCleaning() { CleaningLock.shared.start() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }

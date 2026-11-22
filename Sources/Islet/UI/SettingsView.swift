@@ -2,6 +2,7 @@ import SwiftUI
 import ServiceManagement
 import UniformTypeIdentifiers
 import EventKit
+import AVFoundation
 
 struct SettingsView: View {
     @ObservedObject private var nav = SettingsNav.shared
@@ -59,6 +60,7 @@ struct SettingsView: View {
         case .appearance: AppearancePage()
         case .tools: ToolsPage()
         case .calendarDevices: CalendarDevicesPage()
+        case .face: FacePage()
         case .volume: VolumePage()
         case .actions: ActionsPage()
         case .permissions: PermissionsPage()
@@ -73,12 +75,13 @@ struct GeneralPage: View {
     @AppStorage("showMenuBarIcon") private var menuIcon = true
     @AppStorage("display") private var display = "notch"
     @AppStorage("hotkey") private var hotkey = "ctrlOptSpace"
-    @AppStorage("hideInFullscreen") private var hideFullscreen = true
+    @AppStorage("hideInFullscreen") private var hideFullscreen = false
     @AppStorage("haptics") private var haptics = true
     @AppStorage("hoverExpand") private var hover = true
     @AppStorage("hoverDelay") private var delay = 0.12
     @AppStorage("collapseDelay") private var collapseDelay = 0.28
     @AppStorage("startTab") private var startTab = "last"
+    @AppStorage("animStyle") private var animStyle = "island"
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
     @State private var confirmReset = false
@@ -106,14 +109,21 @@ struct GeneralPage: View {
                     Text("Musik").tag("music")
                     Text("Übersicht").tag("overview")
                 }
-                ToggleRow(title: "In Vollbild-Apps ausblenden", isOn: $hideFullscreen)
+                ToggleRow(title: "In Vollbild-Apps ausblenden", subtitle: "Aus: Die Insel bleibt auch in Vollbild-Apps sichtbar und bedienbar.", isOn: $hideFullscreen)
                 ToggleRow(title: "Haptisches Feedback", subtitle: "Leichtes Klopfen auf dem Trackpad beim Aufklappen und Antippen.", isOn: $haptics)
             }
-            Section("Verhalten") {
+            Section {
+                Picker("Öffnen-Animation", selection: $animStyle) {
+                    Text("Aus der Insel wachsen (Standard)").tag("island")
+                    Text("Sanft, ohne Nachfedern").tag("smooth")
+                    Text("Schnell").tag("quick")
+                }
                 ToggleRow(title: "Beim Überfahren aufklappen", subtitle: "Aus: Die Insel öffnet nur per Klick oder Tastenkürzel.", isOn: $hover)
                 SliderRow(title: "Aufklappen nach", value: $delay, range: 0...0.8, format: { String(format: "%.2f s", $0) })
                     .disabled(!hover)
                 SliderRow(title: "Zuklappen nach", value: $collapseDelay, range: 0.05...1.5, format: { String(format: "%.2f s", $0) })
+            } header: { Text("Verhalten") } footer: {
+                Text("Die Insel startet immer als Notch, wächst von dort nach unten und zur Seite, und der Inhalt blendet danach von oben nach unten ein.")
             }
             Section("Einstellungen sichern") {
                 HStack {
@@ -178,6 +188,8 @@ struct ModulesPage: View {
                 ModuleRow(symbol: "switch.2", color: .teal, title: "Schnell-Schalter", subtitle: "Dunkel/Hell, Stumm, Display aus, Einstellungen.", key: "modToggles")
                 ModuleRow(symbol: "calendar", color: .red, title: "Kalender", subtitle: "Nächste Termine, Countdown in der kompakten Insel.", key: "modCalendar")
                 ModuleRow(symbol: "airpodspro", color: .mint, title: "Geräte & AirPods", subtitle: "Bluetooth-Geräte mit Akkustand, Hinweis beim Verbinden.", key: "modDevices")
+                ModuleRow(symbol: "sparkles", color: .orange, title: "Claude-Limits", subtitle: "Session- und Wochen-Limit live, über die Anmeldung von Claude Code.", key: "modClaude", defaultOn: false)
+                ModuleRow(symbol: "faceid", color: .green, title: "Face Unlock", subtitle: "Entsperren per Kamera (Komfort-Funktion), Einrichtung unter „Face Unlock“.", key: "modFace", defaultOn: false)
                 ModuleRow(symbol: "doc.on.clipboard.fill", color: .brown, title: "Zwischenablage", subtitle: "Verlauf der letzten Texte, nur im Arbeitsspeicher.", key: "modClipboard")
                 ModuleRow(symbol: "mic.fill", color: .red, title: "Mikrofon & Kamera", subtitle: "Orange/grüner Punkt, wenn eins benutzt wird.", key: "modIndicators")
                 ModuleRow(symbol: "speaker.wave.3.fill", color: .cyan, title: "Lautstärke & Helligkeit", subtitle: "Seiten-Bar statt System-HUD.", key: "modHUD")
@@ -209,6 +221,8 @@ struct AppearancePage: View {
     @AppStorage("compactIndicators") private var cInd = true
     @AppStorage("compactCalendar") private var cCal = true
     @AppStorage("compactDevices") private var cDev = true
+    @AppStorage("liveSideItems") private var liveSide = false
+    @ObservedObject private var geo = IslandGeometry.shared
 
     var body: some View {
         Form {
@@ -233,23 +247,29 @@ struct AppearancePage: View {
                 }
             }
             Section("Größe & Form") {
-                SliderRow(title: "Breite", value: $width, range: 500...900, step: 10, format: { "\(Int($0)) pt" })
-                SliderRow(title: "Höhe", value: $height, range: 180...360, step: 2, format: { "\(Int($0)) pt" })
+                SliderRow(title: "Breite", value: $width, range: max(500, geo.minExpandedWidth)...max(900, geo.minExpandedWidth + 40), step: 10, format: { "\(Int($0)) pt" })
+                SliderRow(title: "Höhe", value: $height, range: geo.minExpandedHeight...max(360, geo.minExpandedHeight + 40), step: 2, format: { "\(Int($0)) pt" })
                 SliderRow(title: "Rundung", value: $corner, range: 12...46, format: { "\(Int($0)) pt" })
             }
-            Section("Kompakte Insel zeigt") {
-                ToggleRow(title: "Cover bei laufender Musik", isOn: $cMusic)
-                ToggleRow(title: "Koffein-Symbol, wenn aktiv", isOn: $cCaffeine)
-                ToggleRow(title: "Timer-Restzeit", isOn: $cTimer)
-                ToggleRow(title: "Lade-Hinweis beim Anstecken", isOn: $cCharge)
-                ToggleRow(title: "Mikrofon- und Kamera-Punkt", isOn: $cInd)
-                ToggleRow(title: "Termin-Countdown", subtitle: "Kurz vor Beginn eines Termins.", isOn: $cCal)
-                ToggleRow(title: "Neu verbundene AirPods mit Akkustand", isOn: $cDev)
+            Section {
+                ToggleRow(title: "Live-Anzeigen neben der Notch", subtitle: "Aus (empfohlen): Die geschlossene Insel ist exakt so groß wie die Notch und verdeckt keine Symbole in der Menüleiste.", isOn: $liveSide)
+                Group {
+                    ToggleRow(title: "Cover bei laufender Musik", isOn: $cMusic)
+                    ToggleRow(title: "Koffein-Symbol, wenn aktiv", isOn: $cCaffeine)
+                    ToggleRow(title: "Timer-Restzeit", isOn: $cTimer)
+                    ToggleRow(title: "Lade-Hinweis beim Anstecken", isOn: $cCharge)
+                    ToggleRow(title: "Mikrofon- und Kamera-Punkt", isOn: $cInd)
+                    ToggleRow(title: "Termin-Countdown", subtitle: "Kurz vor Beginn eines Termins.", isOn: $cCal)
+                    ToggleRow(title: "Neu verbundene AirPods mit Akkustand", isOn: $cDev)
+                }
+                .disabled(!liveSide)
+            } header: { Text("Geschlossene Insel") } footer: {
+                Text("Mindestgröße der geöffneten Insel: \(Int(geo.minExpandedWidth)) × \(Int(geo.minExpandedHeight)) pt. Darunter würde die echte Notch in die Reiter ragen, deshalb lässt sich die Insel nicht kleiner stellen.")
             }
             Section {
                 Button("Aussehen zurücksetzen") {
                     Pref.reset(["accentHex", "activeHex", "tintHex", "style", "glassStrength", "cornerRadius", "expandedWidth", "expandedHeight",
-                                "compactMusic", "compactCaffeine", "compactTimer", "compactCharge", "compactIndicators", "compactCalendar", "compactDevices"])
+                                "compactMusic", "compactCaffeine", "compactTimer", "compactCharge", "compactIndicators", "compactCalendar", "compactDevices", "liveSideItems"])
                 }
             }
         }
@@ -267,6 +287,10 @@ struct ToolsPage: View {
     @AppStorage("pomoWork") private var work = 25
     @AppStorage("pomoBreak") private var rest = 5
     @AppStorage("clipboardMax") private var clipMax = 10
+    @AppStorage("cleaningMinutes") private var cleanMin = 2
+    @AppStorage("cleaningTrackpad") private var cleanPad = true
+    @AppStorage("cleaningDim") private var cleanDim = true
+    @AppStorage("modClaude") private var claude = false
 
     var body: some View {
         Form {
@@ -298,6 +322,20 @@ struct ToolsPage: View {
             Section("Zwischenablage") {
                 Stepper("Einträge im Verlauf: \(clipMax)", value: $clipMax, in: 3...30)
             }
+            Section {
+                Picker("Standard-Dauer", selection: $cleanMin) {
+                    ForEach([1, 2, 3, 5, 10], id: \.self) { Text("\($0) Minute\($0 == 1 ? "" : "n")").tag($0) }
+                }
+                ToggleRow(title: "Auch das Trackpad sperren", isOn: $cleanPad)
+                ToggleRow(title: "Bildschirm abdunkeln", subtitle: "Zeigt Restzeit groß an und verhindert versehentliche Klicks.", isOn: $cleanDim)
+            } header: { Text("Tastatur reinigen") } footer: {
+                Text("In der Übersicht auf „Reinigen“ tippen. Tastatur und Trackpad sind dann gesperrt, bis die Zeit abgelaufen ist oder du Esc 3 Sekunden hältst. Braucht die Bedienungshilfen-Freigabe.")
+            }
+            Section {
+                ToggleRow(title: "Claude-Limits anzeigen", subtitle: "Reiter mit Session- und Wochen-Limit (aktualisiert sich alle 2 Minuten).", isOn: $claude)
+            } header: { Text("Claude") } footer: {
+                Text("Islet liest die Anmeldung, die Claude Code im Schlüsselbund ablegt (macOS fragt einmal um Erlaubnis), und ruft damit dieselben Zahlen wie unter claude.ai/settings/usage von api.anthropic.com ab. Es wird nichts geschrieben. Die Schnittstelle ist nicht offiziell dokumentiert und kann sich ändern.")
+            }
         }
         .formStyle(.grouped)
     }
@@ -309,6 +347,7 @@ struct CalendarDevicesPage: View {
     @AppStorage("calendarDays") private var days = 2
     @AppStorage("calendarSoonMinutes") private var soon = 10
     @AppStorage("calendarAllDay") private var allDay = true
+    @AppStorage("calendarReminders") private var reminders = true
     @ObservedObject private var cal = CalendarModule.shared
     @ObservedObject private var dev = Devices.shared
     @State private var calendars: [CalInfo] = []
@@ -336,9 +375,18 @@ struct CalendarDevicesPage: View {
                     ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) Minuten vorher").tag($0) }
                 }
                 ToggleRow(title: "Ganztägige Termine anzeigen", isOn: $allDay)
+                ToggleRow(title: "Erinnerungen anzeigen", subtitle: "Offene Apple-Erinnerungen mit Fälligkeit, überfällige oben. Abhaken geht direkt in der Insel.", isOn: $reminders)
+                if reminders && cal.reminderStatus != .fullAccess {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(cal.reminderStatus == .notDetermined ? "Für Erinnerungen fehlt noch deine Erlaubnis." : "Zugriff auf Erinnerungen fehlt (Systemeinstellungen → Datenschutz → Erinnerungen).")
+                        Spacer()
+                        if cal.reminderStatus == .notDetermined { Button("Erlauben") { cal.requestRemindersAccess() } }
+                    }
+                }
             }
             if !calendars.isEmpty {
-                Section("Angezeigte Kalender") {
+                Section("Angezeigte Kalender und Listen") {
                     ForEach(calendars) { c in
                         Toggle(isOn: Binding(
                             get: { !excluded.contains(c.id) },
@@ -350,6 +398,7 @@ struct CalendarDevicesPage: View {
                                 Circle().fill(c.color).frame(width: 10, height: 10)
                                 Text(c.title)
                                 if !c.source.isEmpty { Text(c.source).font(.caption).foregroundStyle(.secondary) }
+                                if c.isReminderList { Image(systemName: "checklist").font(.caption).foregroundStyle(.secondary) }
                             }
                         }
                     }
@@ -508,6 +557,8 @@ struct PermissionsPage: View {
     @State private var spotify = Perm.automation("com.spotify.client")
     @State private var events = Perm.automation("com.apple.systemevents")
     @State private var calStatus = EKEventStore.authorizationStatus(for: .event)
+    @State private var remStatus = EKEventStore.authorizationStatus(for: .reminder)
+    @State private var camStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     var body: some View {
         Form {
@@ -528,6 +579,14 @@ struct PermissionsPage: View {
                     ok: calStatus == .fullAccess, label: calLabel, canAsk: calStatus == .notDetermined) {
                     CalendarModule.shared.requestAccess()
                 } open: { open("Privacy_Calendars") }
+                row(symbol: "checklist", title: "Erinnerungen", detail: "Offene Erinnerungen in der Insel, Abhaken auf deinen Klick.",
+                    ok: remStatus == .fullAccess, label: remStatus == .fullAccess ? "Erlaubt" : (remStatus == .notDetermined ? "Noch nicht gefragt" : "Abgelehnt"), canAsk: remStatus == .notDetermined) {
+                    CalendarModule.shared.requestRemindersAccess()
+                } open: { open("Privacy_Reminders") }
+                row(symbol: "camera.fill", title: "Kamera", detail: "Nur für Face Unlock, nur während eines Scans.",
+                    ok: camStatus == .authorized, label: camStatus == .authorized ? "Erlaubt" : (camStatus == .notDetermined ? "Noch nicht gefragt" : "Abgelehnt"), canAsk: camStatus == .notDetermined) {
+                    AVCaptureDevice.requestAccess(for: .video) { _ in }
+                } open: { open("Privacy_Camera") }
             } footer: {
                 Text("Islet ist nur lokal signiert. Nach einem Neubau kann macOS die Freigaben neu verlangen. Dann in den Systemeinstellungen den Schalter für Islet aus- und wieder einschalten.")
             }
@@ -542,6 +601,8 @@ struct PermissionsPage: View {
         spotify = Perm.automation("com.spotify.client")
         events = Perm.automation("com.apple.systemevents")
         calStatus = EKEventStore.authorizationStatus(for: .event)
+        remStatus = EKEventStore.authorizationStatus(for: .reminder)
+        camStatus = AVCaptureDevice.authorizationStatus(for: .video)
     }
 
     private var calLabel: String {

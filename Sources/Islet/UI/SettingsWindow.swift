@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Welche Seite die Einstellungen zeigen.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, modules, appearance, tools, calendarDevices, volume, actions, permissions, about
+    case general, modules, appearance, tools, calendarDevices, face, volume, actions, permissions, about
     var id: String { rawValue }
 
     var title: String {
@@ -13,6 +13,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .appearance: return "Aussehen"
         case .tools: return "Koffein & Timer"
         case .calendarDevices: return "Kalender & Geräte"
+        case .face: return "Face Unlock"
         case .volume: return "Lautstärke & Gesten"
         case .actions: return "Aktionen"
         case .permissions: return "Berechtigungen"
@@ -27,6 +28,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .appearance: return "paintpalette.fill"
         case .tools: return "cup.and.saucer.fill"
         case .calendarDevices: return "calendar"
+        case .face: return "faceid"
         case .volume: return "speaker.wave.2.fill"
         case .actions: return "bolt.fill"
         case .permissions: return "hand.raised.fill"
@@ -41,6 +43,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .appearance: return .pink
         case .tools: return .orange
         case .calendarDevices: return .red
+        case .face: return .green
         case .volume: return .blue
         case .actions: return .yellow
         case .permissions: return .green

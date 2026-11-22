@@ -16,6 +16,7 @@ struct PanelView: View {
     @AppStorage("modActions") private var modActions = true
     @AppStorage("modCalendar") private var modCalendar = true
     @AppStorage("modDevices") private var modDevices = true
+    @AppStorage("modClaude") private var modClaude = false
     @Namespace private var tabSpace
 
     private var tabs: [IslandTab] {
@@ -24,6 +25,7 @@ struct PanelView: View {
         if modCaffeine || modTimer || modStats || modToggles || (modBattery && battery.hasBattery) { t.append(.overview) }
         if modCalendar { t.append(.calendar) }
         if modDevices { t.append(.devices) }
+        if modClaude { t.append(.claude) }
         if modClipboard { t.append(.clipboard) }
         if modActions { t.append(.actions) }
         return t
@@ -40,6 +42,7 @@ struct PanelView: View {
                 case .overview: OverviewView()
                 case .calendar: CalendarView()
                 case .devices: DevicesView()
+                case .claude: ClaudeView()
                 case .clipboard: ClipboardView()
                 case .actions: ActionsView()
                 case nil:
@@ -58,40 +61,51 @@ struct PanelView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.86), value: current)
     }
 
-    /// Leiste auf Höhe der Notch: Ansichten links, Zahnrad rechts, Lücke für die Notch in der Mitte.
+    /// Leiste auf Höhe der Notch. Mit Notch sind die Reiter links und rechts davon verteilt (nichts liegt unter der
+    /// echten Notch), das Zahnrad sitzt ganz rechts. Ohne Notch stehen alle Reiter links.
     private var header: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: tabs.count > 5 ? 2 : 4) {
-                ForEach(tabs) { tab in
-                    Button { Haptics.tap(); state.tab = tab } label: {
-                        Image(systemName: tab.symbol)
-                            .font(.system(size: 12, weight: .semibold))
-                            .frame(width: tabs.count > 5 ? 31 : 34, height: 24)
-                            .foregroundStyle(current == tab ? .white : .white.opacity(0.45))
-                            .background {
-                                if current == tab {
-                                    Capsule().fill(.white.opacity(0.16)).matchedGeometryEffect(id: "tab", in: tabSpace)
-                                }
-                            }
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help(tab.title)
+        let hasNotch = geo.notchWidth > 0
+        let split = hasNotch ? (tabs.count + 1) / 2 : tabs.count
+        let left = Array(tabs.prefix(split)), right = Array(tabs.dropFirst(split))
+        return HStack(spacing: 0) {
+            tabGroup(left)
+            Spacer(minLength: hasNotch ? geo.notchWidth + 24 : 8)
+            HStack(spacing: 2) {
+                tabGroup(right)
+                Button { SettingsWindow.show() } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 34, height: 24)
+                        .foregroundStyle(.white.opacity(0.45))
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .help("Einstellungen öffnen")
             }
-            Spacer(minLength: geo.notchWidth > 0 ? geo.notchWidth + 24 : 8)
-            Button { SettingsWindow.show() } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 34, height: 24)
-                    .foregroundStyle(.white.opacity(0.45))
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Einstellungen öffnen")
         }
         .padding(.horizontal, 20)
         .frame(height: max(geo.notchHeight, 30))
+    }
+
+    private func tabGroup(_ items: [IslandTab]) -> some View {
+        HStack(spacing: 2) {
+            ForEach(items) { tab in
+                Button { Haptics.tap(); state.tab = tab } label: {
+                    Image(systemName: tab.symbol)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 34, height: 24)
+                        .foregroundStyle(current == tab ? .white : .white.opacity(0.45))
+                        .background {
+                            if current == tab {
+                                Capsule().fill(.white.opacity(0.16)).matchedGeometryEffect(id: "tab", in: tabSpace)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(tab.title)
+            }
+        }
     }
 }
 
@@ -129,7 +143,7 @@ struct OverviewView: View {
                 DarkModeTile()
                 MuteTile()
                 DisplayOffTile()
-                SettingsTile()
+                CleaningTile()
             }
         }
         .frame(maxHeight: .infinity, alignment: .center)

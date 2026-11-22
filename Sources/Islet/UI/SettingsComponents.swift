@@ -69,9 +69,9 @@ struct ModuleRow: View {
     let subtitle: String
     @AppStorage private var isOn: Bool
 
-    init(symbol: String, color: Color, title: String, subtitle: String, key: String) {
+    init(symbol: String, color: Color, title: String, subtitle: String, key: String, defaultOn: Bool = true) {
         self.symbol = symbol; self.color = color; self.title = title; self.subtitle = subtitle
-        _isOn = AppStorage(wrappedValue: true, key)
+        _isOn = AppStorage(wrappedValue: defaultOn, key)
     }
 
     var body: some View {
@@ -104,8 +104,10 @@ struct IslandPreview: View {
 
     var body: some View {
         let w: CGFloat = 340
-        let scale = w / CGFloat(expW)
-        let h = CGFloat(expH) * scale
+        let geo = IslandGeometry.shared
+        let effW = max(CGFloat(expW), geo.minExpandedWidth), effH = max(CGFloat(expH), geo.minExpandedHeight)
+        let scale = w / effW
+        let h = effH * scale
         let shape = NotchShape(top: 12 * scale, bottom: CGFloat(corner) * scale)
         ZStack(alignment: .top) {
             LinearGradient(colors: [Color(hex: "#5E5CE6").opacity(0.55), Color(hex: "#FF6B6B").opacity(0.45)],

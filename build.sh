@@ -28,5 +28,7 @@ if [[ "${1:-}" == "install" || "${1:-}" == "run" ]]; then
     echo "Installiert: $HOME/Applications/Islet.app"
 fi
 if [[ "${1:-}" == "run" ]]; then
+    # Entwicklungs-Builds: die Bedienungshilfen-Anfrage nicht bei jedem Neubau automatisch öffnen.
+    defaults write app.islet.mac axPromptedFor "$(stat -f %m "$HOME/Applications/Islet.app/Contents/MacOS/Islet")"
     open "$HOME/Applications/Islet.app"
 fi

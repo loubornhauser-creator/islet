@@ -76,3 +76,23 @@ struct SettingsTile: View {
         }
     }
 }
+
+struct CleaningTile: View {
+    @ObservedObject private var lock = CleaningLock.shared
+
+    var body: some View {
+        Tile(tint: lock.active ? Color(hex: "#FF9F0A") : nil, action: { if lock.active { lock.stop() } else { lock.start() } }) {
+            VStack(spacing: 4) {
+                Image(systemName: "keyboard").font(.system(size: 21, weight: .medium))
+                Text("Reinigen").font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+        }
+        .contextMenu {
+            ForEach([1, 2, 3, 5], id: \.self) { m in
+                Button("\(m) Minute\(m == 1 ? "" : "n") sperren") { CleaningLock.shared.start(seconds: Double(m) * 60) }
+            }
+        }
+        .help("Sperrt Tastatur und Trackpad zum Abwischen. Esc 3 Sekunden halten beendet es sofort.")
+    }
+}

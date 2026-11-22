@@ -8,12 +8,17 @@ Eine schlanke Dynamic Island für den Mac, in nativem Swift/SwiftUI, ohne Fremdb
 
 - **Musik** (Spotify): Cover, Titel, Play/Pause/Skip, Fortschritt zum Spulen. Per AppleScript und Benachrichtigungen, kein API-Key
 - **Übersicht**: Koffein, Timer, Akku, Stats (CPU/GPU/RAM) und Schnell-Schalter (Dunkel/Hell, Stumm, Display aus)
-- **Kalender**: nächste Termine (EventKit, nur lesend), Auswahl der Kalender, Countdown kurz vor Beginn in der kompakten Insel
+- **Kalender**: nächste Termine (EventKit, nur lesend) und offene Apple-Erinnerungen (überfällige oben, Abhaken per Klick), Auswahl der Kalender und Listen, Countdown kurz vor Beginn in der kompakten Insel
 - **Geräte**: verbundene Bluetooth-Geräte mit Akkustand (AirPods links/rechts/Hülle, Maus, Tastatur). Beim Verbinden von AirPods erscheinen Symbol und Akkustand neben der Notch
+- **Claude-Limits**: Session- (5 Std) und Wochen-Limit live, über die Anmeldung von Claude Code im Schlüsselbund (opt-in, macOS fragt einmal um Erlaubnis)
 - **Zwischenablage**: Verlauf der letzten Texte, nur im Arbeitsspeicher, Passwort-Manager werden ignoriert
 - **Aktionen**: eigene Kacheln für Shell-Befehl, App oder Link, mit Vorlagen
 
 **Kompakte Insel** zeigt live neben der Notch: Cover bei Musik, Koffein-Symbol, Timer-Restzeit, Lade-Hinweis, Termin-Countdown, neu verbundene AirPods, Mikrofon- und Kamera-Punkt
+
+**Face Unlock** (Komfort-Funktion, kein Ersatz für Face ID): Einrichtung mit Passwort-Prüfung und Einlernen aus 9 Kopfwinkeln, Gesichtserkennung nur mit Apples Vision-Framework (kein Modell, kein Download), Scan beim Aufwachen, Animation in der Notch, Passwort wird nur bei wirklich gesperrtem Bildschirm und höchstens zweimal getippt. Zuerst als Probelauf ohne Tippen. Gesicht und Passwort liegen im Schlüsselbund
+
+**Tastatur reinigen**: sperrt Tastatur und Trackpad, Esc 3 Sekunden halten beendet sofort
 
 **Koffein-Button**: grün, wenn irgendein `caffeinate` läuft (auch aus dem Terminal gestartet), sonst grau. Klick schaltet um, Rechtsklick wählt die Dauer, Restzeit wird angezeigt
 

@@ -27,11 +27,17 @@ final class IslandController {
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.isMovable = false
+        panel.animationBehavior = .none
         panel.contentView = IslandHostingView(rootView: IslandView())
 
         IslandState.shared.$expanded.sink { [weak self] _ in
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
+        IslandState.shared.$compactWidth.removeDuplicates().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.layout() }
+        }.store(in: &cancellables)
+
+        IslandState.shared.prepareWindow = { [weak self] in self?.layout(immediate: true, forceExpanded: true) }
 
         let nc = NotificationCenter.default
         nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -99,22 +105,24 @@ final class IslandController {
 
     // MARK: Layout
 
-    private func layout(immediate: Bool = false) {
+    private func layout(immediate: Bool = false, forceExpanded: Bool = false) {
         shrinkWork?.cancel()
         let screen = targetScreen
         let geo = IslandGeometry.shared
-        let expanded = IslandState.shared.expanded
+        let expanded = forceExpanded || IslandState.shared.expanded || IslandState.shared.target
         let w: CGFloat, h: CGFloat
         if expanded {
-            w = CGFloat(Pref.double("expandedWidth")) + 24
-            h = CGFloat(Pref.double("expandedHeight")) + 16
+            w = geo.expandedWidth + 24
+            h = geo.expandedHeight + 16
         } else {
-            w = max(geo.baseWidth + 260, 380)
-            h = geo.notchHeight + 10
+            // Geschlossen: exakt die Notch (oder, nur auf Wunsch, mit Live-Anzeigen daneben).
+            // So bleiben alle Menüleisten-Symbole neben der Notch klickbar.
+            w = max(geo.baseWidth, IslandState.shared.compactWidth)
+            h = geo.notchHeight
         }
         let frame = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
         guard frame != panel.frame else { return }
-        if expanded || immediate {
+        if expanded || immediate || frame.width > panel.frame.width {
             panel.setFrame(frame, display: true)
         } else {
             // Erst nach der Zuklapp-Animation verkleinern.

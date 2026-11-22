@@ -17,11 +17,13 @@ enum Pref {
         "hoverExpand": true,
         "hoverDelay": 0.12,
         "collapseDelay": 0.28,
+        "animStyle": "island",       // island | smooth | quick
+        "liveSideItems": false,      // Live-Anzeigen neben der Notch (macht die geschlossene Insel breiter)
         // Allgemein
         "showMenuBarIcon": true,
         "display": "notch",          // notch | main | mouse
         "hotkey": "ctrlOptSpace",    // off | ctrlOptSpace | cmdOptI | ctrlOptI
-        "hideInFullscreen": true,
+        "hideInFullscreen": false,    // an: Insel in Vollbild-Apps ausblenden
         "haptics": true,
         "startTab": "last",          // last | music | overview
         // Kompakte Insel
@@ -37,7 +39,25 @@ enum Pref {
         "calendarSoonMinutes": 10,
         "calendarAllDay": true,
         "calendarExcluded": "[]",
+        "calendarReminders": true,
+        // Face Unlock
+        "modFace": false,
+        "faceTypePassword": false,
+        "faceOnWake": true,
+        "faceOnScreensaver": true,
+        "faceOnActivity": true,
+        "faceOnLock": false,
+        "faceScanSeconds": 10.0,
+        "faceStrictness": "normal",
+        "faceCamera": "auto",
+        "faceShowIsland": true,
+        "faceLockScreenOverlay": true,
+        // Tastatur reinigen
+        "cleaningMinutes": 2,
+        "cleaningTrackpad": true,
+        "cleaningDim": true,
         // Module
+        "modClaude": false,
         "modCalendar": true,
         "modDevices": true,
         "modMusic": true,

@@ -36,8 +36,8 @@ struct IslandView: View {
     @ObservedObject private var calendar = CalendarModule.shared
 
     @AppStorage("cornerRadius") private var corner = 34.0
-    @AppStorage("expandedWidth") private var expW = 560.0
-    @AppStorage("expandedHeight") private var expH = 226.0
+    @AppStorage("expandedWidth") private var prefW = 560.0
+    @AppStorage("expandedHeight") private var prefH = 226.0
     @AppStorage("style") private var style = "solid"
     @AppStorage("tintHex") private var tintHex = "#000000"
     @AppStorage("glassStrength") private var glassStrength = 0.55
@@ -57,9 +57,13 @@ struct IslandView: View {
     @AppStorage("modCalendar") private var modCalendar = true
     @AppStorage("compactCalendar") private var cCalendar = true
 
+    @AppStorage("liveSideItems") private var liveSide = false
+    @AppStorage("animStyle") private var animStyle = "island"
+
     private var showDevice: Bool { modDevices && cDevices && devices.chip != nil }
 
     private var leadingItems: [CompactItem] {
+        guard liveSide else { return [] }   // Standard: geschlossen exakt so groß wie die Notch
         var i: [CompactItem] = []
         if showDevice { i.append(.device) }
         if modMusic && cMusic && music.isPlaying && music.hasTrack { i.append(.music) }
@@ -68,6 +72,7 @@ struct IslandView: View {
     }
 
     private var trailingItems: [CompactItem] {
+        guard liveSide else { return [] }
         var i: [CompactItem] = []
         if showDevice, devices.chip?.level != nil { i.append(.deviceBattery) }
         if modTimer && cTimer && timer.running { i.append(.timer) }
@@ -90,20 +95,26 @@ struct IslandView: View {
         return side > 0 ? geo.baseWidth + (side + 6) * 2 : geo.baseWidth
     }
 
+    private var expW: CGFloat { max(CGFloat(prefW), geo.minExpandedWidth) }
+    private var expH: CGFloat { max(CGFloat(prefH), geo.minExpandedHeight) }
+
     private var compactColor: Color { geo.notchWidth > 0 ? .black : Color(hex: tintHex) }
 
     var body: some View {
         let expanded = state.expanded
+        let visible = state.contentVisible
         let shape = NotchShape(top: expanded ? 12 : 6, bottom: expanded ? corner : 14)
-        let lead = leadingItems, trail = trailingItems
         ZStack(alignment: .top) {
             if expanded {
                 PanelView()
                     .frame(width: expW, height: expH)
-                    .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .top)))
+                    .opacity(visible ? 1 : 0)
+                    .blur(radius: visible ? 0 : 10)
+                    .scaleEffect(visible ? 1 : 0.9, anchor: .top)
+                    .animation(visible ? IslandMotion.contentIn : IslandMotion.contentOut, value: visible)
             } else {
-                CompactView(leading: lead, trailing: trail, sideWidth: max(width(of: lead), width(of: trail)))
-                    .transition(.opacity)
+                CompactView(leading: leadingItems, trailing: trailingItems,
+                            sideWidth: max(width(of: leadingItems), width(of: trailingItems)))
             }
         }
         .frame(width: expanded ? expW : compactWidth, height: expanded ? expH : geo.notchHeight, alignment: .top)
@@ -112,9 +123,11 @@ struct IslandView: View {
         .contentShape(shape)
         .onHover { state.hover($0) }
         .onTapGesture { if !expanded { state.toggle() } }
-        .animation(.spring(response: 0.45, dampingFraction: 0.82), value: expanded)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: compactWidth)
+        .animation(expanded ? IslandMotion.open : IslandMotion.close, value: expanded)
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: compactWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { state.compactWidth = compactWidth }
+        .onChange(of: compactWidth) { state.compactWidth = $0 }
     }
 
     @ViewBuilder
