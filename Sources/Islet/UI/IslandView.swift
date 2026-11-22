@@ -2,14 +2,17 @@ import SwiftUI
 
 /// Was die kompakte Insel links und rechts neben der Notch zeigen kann.
 enum CompactItem: Hashable {
-    case music, caffeine, timer, charge, camera, mic
+    case device, music, caffeine, timer, charge, deviceBattery, calendar, camera, mic
 
     var width: CGFloat {
         switch self {
+        case .device: return 30
         case .music: return 30
         case .caffeine: return 26
         case .timer: return 58
         case .charge: return 64
+        case .deviceBattery: return 46
+        case .calendar: return 66
         case .camera, .mic: return 16
         }
     }
@@ -29,6 +32,8 @@ struct IslandView: View {
     @ObservedObject private var timer = CountdownTimer.shared
     @ObservedObject private var battery = Battery.shared
     @ObservedObject private var indicators = Indicators.shared
+    @ObservedObject private var devices = Devices.shared
+    @ObservedObject private var calendar = CalendarModule.shared
 
     @AppStorage("cornerRadius") private var corner = 34.0
     @AppStorage("expandedWidth") private var expW = 560.0
@@ -47,9 +52,16 @@ struct IslandView: View {
     @AppStorage("compactTimer") private var cTimer = true
     @AppStorage("compactCharge") private var cCharge = true
     @AppStorage("compactIndicators") private var cIndicators = true
+    @AppStorage("modDevices") private var modDevices = true
+    @AppStorage("compactDevices") private var cDevices = true
+    @AppStorage("modCalendar") private var modCalendar = true
+    @AppStorage("compactCalendar") private var cCalendar = true
+
+    private var showDevice: Bool { modDevices && cDevices && devices.chip != nil }
 
     private var leadingItems: [CompactItem] {
         var i: [CompactItem] = []
+        if showDevice { i.append(.device) }
         if modMusic && cMusic && music.isPlaying && music.hasTrack { i.append(.music) }
         if modCaffeine && cCaffeine && caffeine.active { i.append(.caffeine) }
         return i
@@ -57,8 +69,10 @@ struct IslandView: View {
 
     private var trailingItems: [CompactItem] {
         var i: [CompactItem] = []
+        if showDevice, devices.chip?.level != nil { i.append(.deviceBattery) }
         if modTimer && cTimer && timer.running { i.append(.timer) }
         else if modBattery && cCharge && battery.hasBattery && battery.recentlyPlugged { i.append(.charge) }
+        if modCalendar && cCalendar && calendar.soon != nil { i.append(.calendar) }
         if modIndicators && cIndicators {
             if indicators.camActive { i.append(.camera) }
             if indicators.micActive { i.append(.mic) }
@@ -122,6 +136,8 @@ struct CompactView: View {
     @ObservedObject private var music = Music.shared
     @ObservedObject private var timer = CountdownTimer.shared
     @ObservedObject private var battery = Battery.shared
+    @ObservedObject private var devices = Devices.shared
+    @ObservedObject private var calendar = CalendarModule.shared
     @AppStorage("activeHex") private var activeHex = "#30D158"
     @AppStorage("accentHex") private var accentHex = "#0A84FF"
 
@@ -141,6 +157,21 @@ struct CompactView: View {
     @ViewBuilder
     private func view(for item: CompactItem) -> some View {
         switch item {
+        case .device:
+            Image(systemName: devices.chip?.symbol ?? "headphones").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+        case .deviceBattery:
+            if let level = devices.chip?.level {
+                Text("\(level)%").monospacedDigit().font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(level <= 20 ? Color.red : Color.white)
+            }
+        case .calendar:
+            if let e = calendar.soon {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color(hex: accentHex))
+                    Text(timerInterval: Date()...max(e.start, Date().addingTimeInterval(1)), countsDown: true, showsHours: false)
+                        .monospacedDigit().font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                }
+            }
         case .music:
             if let art = music.artwork {
                 Image(nsImage: art).resizable().scaledToFill()

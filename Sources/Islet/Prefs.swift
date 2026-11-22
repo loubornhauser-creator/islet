@@ -30,7 +30,16 @@ enum Pref {
         "compactTimer": true,
         "compactCharge": true,
         "compactIndicators": true,
+        "compactCalendar": true,
+        "compactDevices": true,
+        // Kalender
+        "calendarDays": 2,
+        "calendarSoonMinutes": 10,
+        "calendarAllDay": true,
+        "calendarExcluded": "[]",
         // Module
+        "modCalendar": true,
+        "modDevices": true,
         "modMusic": true,
         "modTimer": true,
         "modCaffeine": true,

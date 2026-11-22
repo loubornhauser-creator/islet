@@ -14,12 +14,16 @@ struct PanelView: View {
     @AppStorage("modToggles") private var modToggles = true
     @AppStorage("modClipboard") private var modClipboard = true
     @AppStorage("modActions") private var modActions = true
+    @AppStorage("modCalendar") private var modCalendar = true
+    @AppStorage("modDevices") private var modDevices = true
     @Namespace private var tabSpace
 
     private var tabs: [IslandTab] {
         var t: [IslandTab] = []
         if modMusic { t.append(.music) }
         if modCaffeine || modTimer || modStats || modToggles || (modBattery && battery.hasBattery) { t.append(.overview) }
+        if modCalendar { t.append(.calendar) }
+        if modDevices { t.append(.devices) }
         if modClipboard { t.append(.clipboard) }
         if modActions { t.append(.actions) }
         return t
@@ -34,6 +38,8 @@ struct PanelView: View {
                 switch current {
                 case .music: MusicView()
                 case .overview: OverviewView()
+                case .calendar: CalendarView()
+                case .devices: DevicesView()
                 case .clipboard: ClipboardView()
                 case .actions: ActionsView()
                 case nil:
@@ -55,12 +61,12 @@ struct PanelView: View {
     /// Leiste auf Höhe der Notch: Ansichten links, Zahnrad rechts, Lücke für die Notch in der Mitte.
     private var header: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 4) {
+            HStack(spacing: tabs.count > 5 ? 2 : 4) {
                 ForEach(tabs) { tab in
                     Button { Haptics.tap(); state.tab = tab } label: {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
-                            .frame(width: 34, height: 24)
+                            .frame(width: tabs.count > 5 ? 31 : 34, height: 24)
                             .foregroundStyle(current == tab ? .white : .white.opacity(0.45))
                             .background {
                                 if current == tab {

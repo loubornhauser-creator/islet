@@ -14,5 +14,9 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSAppleEventsUsageDescription</key>
     <string>Islet steuert Spotify (Titel, Cover, Play/Pause) und schaltet auf Wunsch zwischen Dunkel und Hell um.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Islet zeigt deine nächsten Termine in der Insel. Es liest nur und ändert nichts.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Islet zeigt deine nächsten Termine in der Insel. Es liest nur und ändert nichts.</string>
 </dict>
 </plist>

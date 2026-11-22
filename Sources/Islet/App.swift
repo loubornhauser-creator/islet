@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import EventKit
 
 @main
 struct IsletMain {
@@ -42,6 +43,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if value("--clip") != nil {
             Clipboard.shared.items = ["https://github.com/loubornhauser-creator/islet", "swift build -c release", "Termin mit Lena am Montag um 14 Uhr", "ssh deploy@server"].map { ClipItem(text: $0, date: Date().addingTimeInterval(-120)) }
         }
+        if value("--cal") != nil {
+            let now = Date()
+            CalendarModule.shared.status = .fullAccess
+            CalendarModule.shared.events = [
+                CalEvent(id: "1", title: "Design-Review mit Lena", start: now.addingTimeInterval(-900), end: now.addingTimeInterval(1800), allDay: false, location: "Zoom", color: .blue),
+                CalEvent(id: "2", title: "Mittagessen", start: now.addingTimeInterval(5400), end: now.addingTimeInterval(9000), allDay: false, location: "Café Aura", color: .green),
+                CalEvent(id: "3", title: "Frames: Angebot abschicken", start: now.addingTimeInterval(20000), end: now.addingTimeInterval(23000), allDay: false, location: nil, color: .orange),
+                CalEvent(id: "4", title: "Geburtstag Mama", start: now.addingTimeInterval(86400), end: now.addingTimeInterval(86400 + 3600), allDay: true, location: nil, color: .pink),
+            ]
+        }
+        if value("--dev") != nil {
+            let airpods = BTDevice(name: "AirPods Pro von Lou", kind: "Headphones",
+                                   batteries: [BTBattery(id: "L", label: "L", percent: 47), BTBattery(id: "R", label: "R", percent: 89), BTBattery(id: "C", label: "Hülle", percent: 51)],
+                                   symbol: "airpodspro")
+            Devices.shared.connected = [airpods, BTDevice(name: "Magic Mouse", kind: "Mouse", batteries: [BTBattery(id: "M", label: "Akku", percent: 72)], symbol: "magicmouse.fill")]
+        }
         let w = Pref.double("expandedWidth"), h = Pref.double("expandedHeight")
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w + 40, height: h + 20),
                            styleMask: [.borderless], backing: .buffered, defer: false)
@@ -76,6 +93,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             print("Lautstärke:", AudioControl.shared.volume, "stumm:", AudioControl.shared.muted)
             print("Bedienungshilfen erlaubt:", InputTap.trusted)
+            let bt = Devices.readProfiler()
+            print("Bluetooth-Geräte verbunden:", bt.count)
+            for d in bt { print("  ", d.name, "[\(d.kindLabel)]", d.symbol, d.batteries.map { "\($0.label) \($0.percent)%" }.joined(separator: " "), "-> Anzeige:", d.level.map { "\($0)%" } ?? "-") }
+            print("Bluetooth-Audio (CoreAudio):", Devices.bluetoothAudioNames())
+            print("Kalender-Status:", EKEventStore.authorizationStatus(for: .event).rawValue, "(3 = voller Zugriff)")
             print("Gesten-Start möglich:", Gestures.shared.start()); Gestures.shared.stop()
             exit(0)
         }
@@ -109,6 +131,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let on = toggled("modTimer"), !on { CountdownTimer.shared.stop() }
         if let on = toggled("modClipboard") { on ? Clipboard.shared.start() : Clipboard.shared.stop() }
         if let on = toggled("modIndicators") { on ? Indicators.shared.start() : Indicators.shared.stop() }
+        if let on = toggled("modCalendar") { on ? CalendarModule.shared.start() : CalendarModule.shared.stop() }
+        if let on = toggled("modDevices") { on ? Devices.shared.start() : Devices.shared.stop() }
+        CalendarModule.shared.reloadIfSettingsChanged()
 
         Hotkey.shared.apply(Pref.string("hotkey"))
         statusItem?.isVisible = Pref.bool("showMenuBarIcon")
@@ -145,8 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if (hud && replace) || gestures {
-            if !InputTap.shared.start() && !InputTap.trusted && !askedPermission {
-                askedPermission = true
+            if !InputTap.shared.start() && !InputTap.trusted && shouldPromptAccessibility() {
                 InputTap.requestPermission()
             }
         } else {
@@ -154,7 +178,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var askedPermission = false
+    /// Die Freigabe wird nur einmal pro Programmversion angefragt. Nach einem Neubau verlangt macOS sie neu,
+    /// ohne diese Sperre würde bei jedem Start die Systemeinstellung aufgehen.
+    private func shouldPromptAccessibility() -> Bool {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: Bundle.main.executablePath ?? "")
+        let stamp = String(Int((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))
+        if UserDefaults.standard.string(forKey: "axPromptedFor") == stamp { return false }
+        UserDefaults.standard.set(stamp, forKey: "axPromptedFor")
+        return true
+    }
 
     private static func handleKey(_ key: Int, _ flags: NSEvent.ModifierFlags) -> Bool {
         let fine = flags.contains(.shift) && flags.contains(.option)

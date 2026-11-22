@@ -25,12 +25,14 @@ final class IslandGeometry: ObservableObject {
 
 /// Ansichten der geöffneten Insel (Leiste oben, wie bei Atoll).
 enum IslandTab: String, CaseIterable, Identifiable {
-    case music, overview, clipboard, actions
+    case music, overview, calendar, devices, clipboard, actions
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .music: return "music.note"
         case .overview: return "square.grid.2x2.fill"
+        case .calendar: return "calendar"
+        case .devices: return "headphones"
         case .clipboard: return "doc.on.clipboard.fill"
         case .actions: return "bolt.fill"
         }
@@ -39,6 +41,8 @@ enum IslandTab: String, CaseIterable, Identifiable {
         switch self {
         case .music: return "Musik"
         case .overview: return "Übersicht"
+        case .calendar: return "Kalender"
+        case .devices: return "Geräte"
         case .clipboard: return "Zwischenablage"
         case .actions: return "Aktionen"
         }

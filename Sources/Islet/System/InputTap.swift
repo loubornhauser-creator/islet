@@ -10,10 +10,16 @@ final class InputTap {
     var onMediaKey: ((_ key: Int, _ flags: NSEvent.ModifierFlags) -> Bool)?
     var suppressScroll = false
 
-    private var tap: CFMachPort?
+    fileprivate(set) var tap: CFMachPort?
     private var source: CFRunLoopSource?
 
     static var trusted: Bool { AXIsProcessTrusted() }
+
+    /// Wird aufgerufen, wenn die Freigabe nachträglich erteilt wurde: startet die Abfangung ohne Neustart.
+    static func startIfNeeded() {
+        guard trusted, shared.tap == nil, shared.onMediaKey != nil || Pref.bool("modGestures") else { return }
+        shared.start()
+    }
 
     static func requestPermission() {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary

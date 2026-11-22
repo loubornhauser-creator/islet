@@ -1,6 +1,7 @@
 import SwiftUI
 import ServiceManagement
 import UniformTypeIdentifiers
+import EventKit
 
 struct SettingsView: View {
     @ObservedObject private var nav = SettingsNav.shared
@@ -57,6 +58,7 @@ struct SettingsView: View {
         case .modules: ModulesPage()
         case .appearance: AppearancePage()
         case .tools: ToolsPage()
+        case .calendarDevices: CalendarDevicesPage()
         case .volume: VolumePage()
         case .actions: ActionsPage()
         case .permissions: PermissionsPage()
@@ -174,6 +176,8 @@ struct ModulesPage: View {
                 ModuleRow(symbol: "battery.100.bolt", color: .green, title: "Akku & Laden", subtitle: "Ladestand, Hinweis beim Anstecken.", key: "modBattery")
                 ModuleRow(symbol: "cpu", color: .indigo, title: "Stats", subtitle: "CPU, GPU, RAM. Läuft nur bei offener Insel.", key: "modStats")
                 ModuleRow(symbol: "switch.2", color: .teal, title: "Schnell-Schalter", subtitle: "Dunkel/Hell, Stumm, Display aus, Einstellungen.", key: "modToggles")
+                ModuleRow(symbol: "calendar", color: .red, title: "Kalender", subtitle: "Nächste Termine, Countdown in der kompakten Insel.", key: "modCalendar")
+                ModuleRow(symbol: "airpodspro", color: .mint, title: "Geräte & AirPods", subtitle: "Bluetooth-Geräte mit Akkustand, Hinweis beim Verbinden.", key: "modDevices")
                 ModuleRow(symbol: "doc.on.clipboard.fill", color: .brown, title: "Zwischenablage", subtitle: "Verlauf der letzten Texte, nur im Arbeitsspeicher.", key: "modClipboard")
                 ModuleRow(symbol: "mic.fill", color: .red, title: "Mikrofon & Kamera", subtitle: "Orange/grüner Punkt, wenn eins benutzt wird.", key: "modIndicators")
                 ModuleRow(symbol: "speaker.wave.3.fill", color: .cyan, title: "Lautstärke & Helligkeit", subtitle: "Seiten-Bar statt System-HUD.", key: "modHUD")
@@ -203,6 +207,8 @@ struct AppearancePage: View {
     @AppStorage("compactTimer") private var cTimer = true
     @AppStorage("compactCharge") private var cCharge = true
     @AppStorage("compactIndicators") private var cInd = true
+    @AppStorage("compactCalendar") private var cCal = true
+    @AppStorage("compactDevices") private var cDev = true
 
     var body: some View {
         Form {
@@ -227,7 +233,7 @@ struct AppearancePage: View {
                 }
             }
             Section("Größe & Form") {
-                SliderRow(title: "Breite", value: $width, range: 480...900, step: 10, format: { "\(Int($0)) pt" })
+                SliderRow(title: "Breite", value: $width, range: 500...900, step: 10, format: { "\(Int($0)) pt" })
                 SliderRow(title: "Höhe", value: $height, range: 180...360, step: 2, format: { "\(Int($0)) pt" })
                 SliderRow(title: "Rundung", value: $corner, range: 12...46, format: { "\(Int($0)) pt" })
             }
@@ -237,11 +243,13 @@ struct AppearancePage: View {
                 ToggleRow(title: "Timer-Restzeit", isOn: $cTimer)
                 ToggleRow(title: "Lade-Hinweis beim Anstecken", isOn: $cCharge)
                 ToggleRow(title: "Mikrofon- und Kamera-Punkt", isOn: $cInd)
+                ToggleRow(title: "Termin-Countdown", subtitle: "Kurz vor Beginn eines Termins.", isOn: $cCal)
+                ToggleRow(title: "Neu verbundene AirPods mit Akkustand", isOn: $cDev)
             }
             Section {
                 Button("Aussehen zurücksetzen") {
                     Pref.reset(["accentHex", "activeHex", "tintHex", "style", "glassStrength", "cornerRadius", "expandedWidth", "expandedHeight",
-                                "compactMusic", "compactCaffeine", "compactTimer", "compactCharge", "compactIndicators"])
+                                "compactMusic", "compactCaffeine", "compactTimer", "compactCharge", "compactIndicators", "compactCalendar", "compactDevices"])
                 }
             }
         }
@@ -295,6 +303,85 @@ struct ToolsPage: View {
     }
 }
 
+// MARK: Kalender & Geräte
+
+struct CalendarDevicesPage: View {
+    @AppStorage("calendarDays") private var days = 2
+    @AppStorage("calendarSoonMinutes") private var soon = 10
+    @AppStorage("calendarAllDay") private var allDay = true
+    @ObservedObject private var cal = CalendarModule.shared
+    @ObservedObject private var dev = Devices.shared
+    @State private var calendars: [CalInfo] = []
+    @State private var excluded = Set(CalendarModule.excludedList())
+
+    var body: some View {
+        Form {
+            Section("Termine") {
+                if cal.status != .fullAccess {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text(cal.status == .notDetermined ? "Islet braucht deine Erlaubnis für den Kalender." : "Kalender-Zugriff fehlt. Bitte in den Systemeinstellungen erlauben.")
+                        Spacer()
+                        if cal.status == .notDetermined { Button("Erlauben") { cal.requestAccess() } }
+                        else { Button("Öffnen") { openPane() } }
+                    }
+                }
+                Picker("Zeitraum", selection: $days) {
+                    Text("Nur heute").tag(1)
+                    Text("Heute und morgen").tag(2)
+                    Text("3 Tage").tag(3)
+                    Text("7 Tage").tag(7)
+                }
+                Picker("Countdown in der Insel ab", selection: $soon) {
+                    ForEach([5, 10, 15, 30], id: \.self) { Text("\($0) Minuten vorher").tag($0) }
+                }
+                ToggleRow(title: "Ganztägige Termine anzeigen", isOn: $allDay)
+            }
+            if !calendars.isEmpty {
+                Section("Angezeigte Kalender") {
+                    ForEach(calendars) { c in
+                        Toggle(isOn: Binding(
+                            get: { !excluded.contains(c.id) },
+                            set: { on in
+                                if on { excluded.remove(c.id) } else { excluded.insert(c.id) }
+                                CalendarModule.setExcluded(Array(excluded))
+                            })) {
+                            HStack(spacing: 8) {
+                                Circle().fill(c.color).frame(width: 10, height: 10)
+                                Text(c.title)
+                                if !c.source.isEmpty { Text(c.source).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
+                }
+            }
+            Section {
+                if dev.connected.isEmpty {
+                    Text("Keine Bluetooth-Geräte verbunden.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(dev.connected) { d in
+                        LabeledContent {
+                            Text(d.batteries.map { "\($0.label) \($0.percent) %" }.joined(separator: "  ·  ")).foregroundStyle(.secondary).font(.caption)
+                        } label: {
+                            Label(d.name, systemImage: d.symbol)
+                        }
+                    }
+                }
+                Button(dev.refreshing ? "Lese Akkustand …" : "Jetzt aktualisieren") { dev.refresh(force: true) }
+                    .disabled(dev.refreshing)
+            } header: { Text("Bluetooth-Geräte") } footer: {
+                Text("Islet erkennt neue Verbindungen von AirPods und Co. und zeigt kurz Symbol und Akkustand neben der Notch. Den Akkustand liest es über die Systeminformationen, dafür ist keine Bluetooth-Berechtigung nötig.")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { calendars = cal.allCalendars(); dev.refresh() }
+    }
+
+    private func openPane() {
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") { NSWorkspace.shared.open(u) }
+    }
+}
+
 // MARK: Lautstärke & Gesten
 
 struct VolumePage: View {
@@ -335,7 +422,10 @@ struct VolumePage: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in trusted = InputTap.trusted }
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            trusted = InputTap.trusted
+            InputTap.startIfNeeded()
+        }
     }
 
     @ViewBuilder private var gestureOptions: some View {
@@ -417,6 +507,7 @@ struct PermissionsPage: View {
     @State private var trusted = InputTap.trusted
     @State private var spotify = Perm.automation("com.spotify.client")
     @State private var events = Perm.automation("com.apple.systemevents")
+    @State private var calStatus = EKEventStore.authorizationStatus(for: .event)
 
     var body: some View {
         Form {
@@ -433,6 +524,10 @@ struct PermissionsPage: View {
                     ok: events == .granted, label: events.label, canAsk: events != .notRunning) {
                     events = Perm.automation("com.apple.systemevents", ask: true)
                 } open: { open("Privacy_Automation") }
+                row(symbol: "calendar", title: "Kalender", detail: "Nächste Termine in der Insel. Islet liest nur und ändert nichts.",
+                    ok: calStatus == .fullAccess, label: calLabel, canAsk: calStatus == .notDetermined) {
+                    CalendarModule.shared.requestAccess()
+                } open: { open("Privacy_Calendars") }
             } footer: {
                 Text("Islet ist nur lokal signiert. Nach einem Neubau kann macOS die Freigaben neu verlangen. Dann in den Systemeinstellungen den Schalter für Islet aus- und wieder einschalten.")
             }
@@ -443,8 +538,19 @@ struct PermissionsPage: View {
 
     private func refresh() {
         trusted = InputTap.trusted
+        InputTap.startIfNeeded()
         spotify = Perm.automation("com.spotify.client")
         events = Perm.automation("com.apple.systemevents")
+        calStatus = EKEventStore.authorizationStatus(for: .event)
+    }
+
+    private var calLabel: String {
+        switch calStatus {
+        case .fullAccess: return "Erlaubt"
+        case .notDetermined: return "Noch nicht gefragt"
+        case .writeOnly: return "Nur Schreiben"
+        default: return "Abgelehnt"
+        }
     }
 
     private func open(_ pane: String) {

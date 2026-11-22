@@ -8,10 +8,12 @@ Eine schlanke Dynamic Island für den Mac, in nativem Swift/SwiftUI, ohne Fremdb
 
 - **Musik** (Spotify): Cover, Titel, Play/Pause/Skip, Fortschritt zum Spulen. Per AppleScript und Benachrichtigungen, kein API-Key
 - **Übersicht**: Koffein, Timer, Akku, Stats (CPU/GPU/RAM) und Schnell-Schalter (Dunkel/Hell, Stumm, Display aus)
+- **Kalender**: nächste Termine (EventKit, nur lesend), Auswahl der Kalender, Countdown kurz vor Beginn in der kompakten Insel
+- **Geräte**: verbundene Bluetooth-Geräte mit Akkustand (AirPods links/rechts/Hülle, Maus, Tastatur). Beim Verbinden von AirPods erscheinen Symbol und Akkustand neben der Notch
 - **Zwischenablage**: Verlauf der letzten Texte, nur im Arbeitsspeicher, Passwort-Manager werden ignoriert
 - **Aktionen**: eigene Kacheln für Shell-Befehl, App oder Link, mit Vorlagen
 
-**Kompakte Insel** zeigt live neben der Notch: Cover bei Musik, Koffein-Symbol, Timer-Restzeit, Lade-Hinweis, Mikrofon- und Kamera-Punkt
+**Kompakte Insel** zeigt live neben der Notch: Cover bei Musik, Koffein-Symbol, Timer-Restzeit, Lade-Hinweis, Termin-Countdown, neu verbundene AirPods, Mikrofon- und Kamera-Punkt
 
 **Koffein-Button**: grün, wenn irgendein `caffeinate` läuft (auch aus dem Terminal gestartet), sonst grau. Klick schaltet um, Rechtsklick wählt die Dauer, Restzeit wird angezeigt
 
@@ -42,6 +44,8 @@ Islet --snapshot-settings out.png --page general   # Einstellungsseite rendern
 ## Berechtigungen
 
 - **Automation** (Spotify, System Events): wird beim ersten Zugriff abgefragt.
+- **Kalender**: wird beim ersten Start abgefragt, Islet liest nur.
+- **Bluetooth**: keine Berechtigung nötig, der Akkustand kommt über die Systeminformationen.
 - **Bedienungshilfen**: nötig, um Medientasten abzufangen und das Scrollen während einer Rand-Geste zu unterdrücken. Ohne sie läuft der Rest trotzdem.
 
 Der aktuelle Status steht in den Einstellungen unter „Berechtigungen“.
