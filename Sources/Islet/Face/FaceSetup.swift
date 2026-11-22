@@ -29,7 +29,8 @@ final class FaceEnroller: ObservableObject {
 
     @Published var step: Step = .intro
     @Published var passwordError: String?
-    @Published var bins = [Int](repeating: 0, count: 9)
+    @Published var count = 0
+    @Published var yawSpread: Float = 0
     @Published var message = "Schau geradeaus"
     @Published var cameraError: String?
     @Published var faceVisible = false
@@ -41,10 +42,13 @@ final class FaceEnroller: ObservableObject {
     private var lastCapture = Date.distantPast
     private var verifyDistances: [(Float, Float)] = []
     private var password = ""
-    static let perBin = 4
+    private var yawMin: Float = 9, yawMax: Float = -9
+    /// So viele abwechslungsreiche Aufnahmen werden gesammelt. Keine starren Winkel, denn Vision liefert Hoch/Runter-Neigung nicht zuverlässig.
+    static let target = 24
+    static let minimum = 12
 
-    var filledBins: Int { bins.filter { $0 >= Self.perBin }.count }
-    var canFinishScan: Bool { bins[4] >= Self.perBin && filledBins >= 5 }
+    var canFinishScan: Bool { count >= Self.minimum }
+    var progress: Double { min(1, Double(count) / Double(Self.target)) }
 
     func checkPassword(_ pw: String) {
         passwordError = nil
@@ -78,27 +82,24 @@ final class FaceEnroller: ObservableObject {
 
     func stopCamera() { camera.stop(); camera.onFrame = nil }
 
-    private func binIndex(_ f: FaceFrame) -> Int {
-        let yb = f.yaw < -0.22 ? 0 : (f.yaw > 0.22 ? 2 : 1)
-        let pb = f.pitch < -0.14 ? 0 : (f.pitch > 0.14 ? 2 : 1)
-        return pb * 3 + yb
-    }
-
     private func handle(_ f: FaceFrame?) {
         faceVisible = f != nil
         guard let f else { message = "Ich sehe kein Gesicht. Schau in die Kamera."; return }
         switch step {
         case .scan:
-            guard f.size > 0.2 else { message = "Etwas näher an die Kamera"; return }
-            let b = binIndex(f)
-            if bins[b] < Self.perBin, Date().timeIntervalSince(lastCapture) > 0.22 {
+            guard f.size > 0.18 else { message = "Etwas näher an die Kamera"; return }
+            if samples.count < 40, Date().timeIntervalSince(lastCapture) > 0.3 {
                 lastCapture = Date()
                 samples.append(FaceSample(feature: f.feature, geometry: f.geometry, yaw: f.yaw, pitch: f.pitch))
-                bins[b] += 1
+                count = samples.count
+                yawMin = min(yawMin, f.yaw); yawMax = max(yawMax, f.yaw)
+                yawSpread = yawMax - yawMin
             }
-            if canFinishScan && filledBins >= 8 { beginVerify() }
-            else if bins[4] < Self.perBin { message = "Schau gerade in die Kamera" }
-            else { message = "Dreh den Kopf langsam: links, rechts, hoch, runter" }
+            if count >= Self.target && yawSpread >= 0.22 { beginVerify(); return }
+            if count < 6 { message = "Schau gerade in die Kamera" }
+            else if yawSpread < 0.22 { message = "Dreh den Kopf langsam nach links und rechts" }
+            else if count < Self.target { message = "Neige den Kopf leicht, hoch und runter, und bleib im Bild" }
+            else { message = "Gleich fertig" }
         case .verify:
             guard let t = currentTemplate() else { return }
             let n = FaceMatcher.nearest(f, in: t)
@@ -197,18 +198,8 @@ struct FaceSetupView: View {
                     .stroke(e.faceVisible ? Color.green : Color.white.opacity(0.3), lineWidth: 3).frame(width: 300, height: 225)
             }
             if e.step == .scan {
-                VStack(spacing: 4) {
-                    ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: 4) {
-                            ForEach(0..<3, id: \.self) { col in
-                                let n = e.bins[row * 3 + col]
-                                RoundedRectangle(cornerRadius: 5).fill(n >= FaceEnroller.perBin ? Color.green : Color.primary.opacity(0.12 + Double(n) * 0.08))
-                                    .frame(width: 46, height: 22)
-                            }
-                        }
-                    }
-                }
-                Text("\(e.filledBins) von 9 Winkeln").font(.caption).foregroundStyle(.secondary)
+                ProgressView(value: e.progress).frame(width: 260)
+                Text("\(e.count) von \(FaceEnroller.target) Aufnahmen").font(.caption).foregroundStyle(.secondary)
             } else {
                 ProgressView(value: e.verifyProgress).frame(width: 260)
             }

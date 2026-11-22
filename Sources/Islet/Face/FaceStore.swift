@@ -29,12 +29,16 @@ struct FaceTemplate {
             guard let d = try? NSKeyedArchiver.archivedData(withRootObject: s.feature, requiringSecureCoding: true) else { return nil }
             feats.append(d)
         }
-        return try? JSONEncoder().encode(Stored(features: feats, geometry: samples.map(\.geometry), yaw: samples.map(\.yaw),
+        let enc = JSONEncoder()
+        enc.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        return try? enc.encode(Stored(features: feats, geometry: samples.map(\.geometry), yaw: samples.map(\.yaw),
                                                  pitch: samples.map(\.pitch), baseFeature: baseFeature, baseGeometry: baseGeometry))
     }
 
     static func decode(_ data: Data) -> FaceTemplate? {
-        guard let s = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
+        let dec = JSONDecoder()
+        dec.nonConformingFloatDecodingStrategy = .convertFromString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+        guard let s = try? dec.decode(Stored.self, from: data) else { return nil }
         var out: [FaceSample] = []
         for i in 0..<s.features.count {
             guard let f = try? NSKeyedUnarchiver.unarchivedObject(ofClass: VNFeaturePrintObservation.self, from: s.features[i]) else { return nil }

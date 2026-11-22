@@ -128,27 +128,32 @@ final class FaceAnalyzer {
 
         let le = pts(l.leftEye), re = pts(l.rightEye), nose = pts(l.nose), lips = pts(l.outerLips)
         let contour = pts(l.faceContour), lb = pts(l.leftEyebrow), rb = pts(l.rightEyebrow), median = pts(l.medianLine)
-        guard let lc = center(le), let rc = center(re), let nc = center(nose), let mc = center(lips),
-              let lbc = center(lb), let rbc = center(rb), let chin = median.last, let top = median.first else { return nil }
+        guard let lc = center(le), let rc = center(re) else { return nil }
         let eye = dist(lc, rc)
         guard eye > 4 else { return nil }
         let eyeMid = CGPoint(x: (lc.x + rc.x) / 2, y: (lc.y + rc.y) / 2)
-        let browMid = CGPoint(x: (lbc.x + rbc.x) / 2, y: (lbc.y + rbc.y) / 2)
-        let r: [CGFloat] = [
-            width(contour) / eye,
-            dist(eyeMid, nc) / eye,
-            dist(nc, mc) / eye,
-            width(lips) / eye,
-            dist(mc, chin) / eye,
-            dist(browMid, eyeMid) / eye,
-            width(le) / eye,
-            width(re) / eye,
-            dist(top, chin) / eye,
-            width(nose) / eye,
-            height(lips) / eye,
-            dist(lbc, rbc) / eye,
+        let nc = center(nose), mc = center(lips), lbc = center(lb), rbc = center(rb)
+        // Beim Neigen des Kopfes fehlen manchmal einzelne Regionen: Ersatzpunkte nehmen, sonst "unbekannt" (NaN).
+        let chin: CGPoint? = median.last ?? contour.min(by: { $0.y < $1.y })
+        let top: CGPoint? = median.first
+        let browMid: CGPoint? = (lbc != nil && rbc != nil) ? CGPoint(x: (lbc!.x + rbc!.x) / 2, y: (lbc!.y + rbc!.y) / 2) : nil
+
+        func ratio(_ v: CGFloat?) -> Float { v.map { Float($0 / eye) } ?? .nan }
+        let vals: [Float] = [
+            contour.count > 2 ? ratio(width(contour)) : .nan,
+            ratio(nc.map { dist(eyeMid, $0) }),
+            (nc != nil && mc != nil) ? ratio(dist(nc!, mc!)) : .nan,
+            lips.count > 2 ? ratio(width(lips)) : .nan,
+            (mc != nil && chin != nil) ? ratio(dist(mc!, chin!)) : .nan,
+            ratio(browMid.map { dist($0, eyeMid) }),
+            le.count > 2 ? ratio(width(le)) : .nan,
+            re.count > 2 ? ratio(width(re)) : .nan,
+            (top != nil && chin != nil) ? ratio(dist(top!, chin!)) : .nan,
+            nose.count > 2 ? ratio(width(nose)) : .nan,
+            lips.count > 2 ? ratio(height(lips)) : .nan,
+            (lbc != nil && rbc != nil) ? ratio(dist(lbc!, rbc!)) : .nan,
         ]
-        return r.map { Float($0) }
+        return vals.filter { !$0.isNaN }.count >= 6 ? vals : nil
     }
 }
 
@@ -167,11 +172,12 @@ enum FaceMatcher {
         return d
     }
 
+    /// Abstand der Proportionen. Unbekannte Werte (NaN) werden übersprungen, mindestens 4 gemeinsame müssen da sein.
     static func geometryDistance(_ a: [Float], _ b: [Float]) -> Float {
-        guard a.count == b.count, !a.isEmpty else { return .infinity }
-        var s: Float = 0
-        for i in 0..<a.count { let d = a[i] - b[i]; s += d * d }
-        return (s / Float(a.count)).squareRoot()
+        guard a.count == b.count else { return .infinity }
+        var s: Float = 0, n: Float = 0
+        for i in 0..<a.count where !a[i].isNaN && !b[i].isNaN { let d = a[i] - b[i]; s += d * d; n += 1 }
+        return n >= 4 ? (s / n).squareRoot() : .infinity
     }
 
     /// Nächster eingelernter Abdruck bei ähnlicher Kopfhaltung.
