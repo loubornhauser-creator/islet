@@ -17,6 +17,7 @@ final class IslandController {
     private let panel: IslandPanel
     private var cancellables = Set<AnyCancellable>()
     private var shrinkWork: DispatchWorkItem?
+    private var lastDisplayPref = ""
 
     init() {
         panel = IslandPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -32,24 +33,71 @@ final class IslandController {
             DispatchQueue.main.async { self?.layout() }
         }.store(in: &cancellables)
 
-        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reposition()
         }
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.layout()
+        nc.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            let d = Pref.string("display")
+            if d != self.lastDisplayPref { self.lastDisplayPref = d; self.reposition() } else { self.layout() }
+            self.updateVisibility()
         }
+        let ws = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
+            ws.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                // Kurz warten, bis der Vollbild-Wechsel abgeschlossen ist.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self?.updateVisibility() }
+            }
+        }
+        lastDisplayPref = Pref.string("display")
         reposition()
         panel.orderFrontRegardless()
     }
 
     private var targetScreen: NSScreen {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+        switch Pref.string("display") {
+        case "main":
+            return NSScreen.screens.first ?? NSScreen.main!
+        case "mouse":
+            let m = NSEvent.mouseLocation
+            return NSScreen.screens.first { $0.frame.contains(m) } ?? NSScreen.main ?? NSScreen.screens[0]
+        default:
+            return NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+        }
     }
 
     func reposition() {
         IslandGeometry.shared.update(for: targetScreen)
         layout(immediate: true)
     }
+
+    // MARK: Vollbild
+
+    private func updateVisibility() {
+        let hide = Pref.bool("hideInFullscreen") && Self.fullscreenAppActive(on: targetScreen)
+        if hide, panel.isVisible { panel.orderOut(nil) }
+        else if !hide, !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    /// Eine App im Vollbild: ein normales Fenster (Ebene 0), das den ganzen Bildschirm deckt.
+    private static func fullscreenAppActive(on screen: NSScreen) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return false }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? screen.frame.height
+        // CG-Koordinaten haben den Ursprung oben links.
+        let rect = CGRect(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height)
+        let me = ProcessInfo.processInfo.processIdentifier
+        for w in list {
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  (w[kCGWindowOwnerPID as String] as? Int32) != me,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let wd = b["Width"], let ht = b["Height"] else { continue }
+            if abs(x - rect.minX) < 1, abs(y - rect.minY) < 1, abs(wd - rect.width) < 1, abs(ht - rect.height) < 1 { return true }
+        }
+        return false
+    }
+
+    // MARK: Layout
 
     private func layout(immediate: Bool = false) {
         shrinkWork?.cancel()
@@ -61,10 +109,11 @@ final class IslandController {
             w = CGFloat(Pref.double("expandedWidth")) + 24
             h = CGFloat(Pref.double("expandedHeight")) + 16
         } else {
-            w = max(geo.baseWidth + 220, 360)
+            w = max(geo.baseWidth + 260, 380)
             h = geo.notchHeight + 10
         }
         let frame = NSRect(x: screen.frame.midX - w / 2, y: screen.frame.maxY - h, width: w, height: h)
+        guard frame != panel.frame else { return }
         if expanded || immediate {
             panel.setFrame(frame, display: true)
         } else {

@@ -17,15 +17,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var applied: [String: Bool] = [:]
 
-    /// `Islet --snapshot out.png` rendert das ausgeklappte Panel in eine Datei (für Tests).
+    /// `Islet --snapshot out.png [--tab music|overview|clipboard|actions]` rendert die Insel,
+    /// `Islet --snapshot-settings out.png --page general|modules|…` rendert eine Einstellungsseite (für Tests).
     private func snapshotIfRequested() -> Bool {
         let args = CommandLine.arguments
-        guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return false }
-        let path = args[i + 1]
+        func value(_ flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        if let path = value("--snapshot-settings") {
+            if let p = value("--page"), let page = SettingsPage(rawValue: p) { SettingsNav.shared.page = page }
+            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+            let host = NSHostingView(rootView: SettingsView())
+            win.contentView = host
+            win.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
+            return true
+        }
+        guard let path = value("--snapshot") else { return false }
         IslandGeometry.shared.notchWidth = 200
         IslandGeometry.shared.notchHeight = 34
         IslandState.shared.expanded = true
-        if let t = args.firstIndex(of: "--tab"), t + 1 < args.count, let tab = IslandTab(rawValue: args[t + 1]) { IslandState.shared.tab = tab }
+        if let t = value("--tab"), let tab = IslandTab(rawValue: t) { IslandState.shared.tab = tab }
+        if value("--clip") != nil {
+            Clipboard.shared.items = ["https://github.com/loubornhauser-creator/islet", "swift build -c release", "Termin mit Lena am Montag um 14 Uhr", "ssh deploy@server"].map { ClipItem(text: $0, date: Date().addingTimeInterval(-120)) }
+        }
         let w = Pref.double("expandedWidth"), h = Pref.double("expandedHeight")
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w + 40, height: h + 20),
                            styleMask: [.borderless], backing: .buffered, defer: false)
@@ -33,14 +49,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let host = NSHostingView(rootView: IslandView())
         win.contentView = host
         win.orderFrontRegardless()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-                host.cacheDisplay(in: host.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-            }
-            exit(0)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { Self.write(host, to: path) }
         return true
+    }
+
+    private static func write(_ host: NSView, to path: String) {
+        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        }
+        exit(0)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -63,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if snapshotIfRequested() { return }
         island = IslandController()
+        Hotkey.shared.onPress = { IslandState.shared.hotkeyToggle() }
         setupStatusItem()
         applyModules()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -88,6 +107,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let on = toggled("modCaffeine") { on ? Caffeine.shared.start() : Caffeine.shared.stop() }
         if let on = toggled("modBattery") { on ? Battery.shared.start() : Battery.shared.stop() }
         if let on = toggled("modTimer"), !on { CountdownTimer.shared.stop() }
+        if let on = toggled("modClipboard") { on ? Clipboard.shared.start() : Clipboard.shared.stop() }
+        if let on = toggled("modIndicators") { on ? Indicators.shared.start() : Indicators.shared.stop() }
+
+        Hotkey.shared.apply(Pref.string("hotkey"))
+        statusItem?.isVisible = Pref.bool("showMenuBarIcon")
 
         let hud = Pref.bool("modHUD")
         let replace = Pref.bool("hudReplaceSystem")
@@ -168,6 +192,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "capsule.fill", accessibilityDescription: "Islet")
         let menu = NSMenu()
+        menu.addItem(withTitle: "Insel öffnen/schließen", action: #selector(toggleIsland), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Einstellungen …", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Islet beenden", action: #selector(quit), keyEquivalent: "q").target = self
@@ -176,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func openSettings() { SettingsWindow.show() }
+    @objc private func toggleIsland() { IslandState.shared.toggle() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }

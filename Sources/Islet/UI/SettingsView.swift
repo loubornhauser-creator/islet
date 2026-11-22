@@ -1,95 +1,247 @@
 import SwiftUI
+import ServiceManagement
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @ObservedObject private var nav = SettingsNav.shared
+
     var body: some View {
-        TabView {
-            ModulesTab().tabItem { Label("Module", systemImage: "square.grid.2x2") }
-            AppearanceTab().tabItem { Label("Aussehen", systemImage: "paintpalette") }
-            HUDTab().tabItem { Label("HUD & Gesten", systemImage: "slider.vertical.3") }
-            ActionsTab().tabItem { Label("Aktionen", systemImage: "bolt") }
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
+            VStack(spacing: 0) {
+                Text(nav.page.title).font(.system(size: 22, weight: .bold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 26).padding(.top, 34).padding(.bottom, 4)
+                detail.id(nav.page)
+            }
         }
-        .frame(width: 520, height: 460)
-        .padding(12)
+        .frame(width: 820, height: 600)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Image(systemName: "capsule.fill").font(.system(size: 14, weight: .bold))
+                Text("Islet").font(.system(size: 15, weight: .bold))
+            }
+            .padding(.horizontal, 12).padding(.top, 34).padding(.bottom, 14)
+            ForEach(SettingsPage.allCases) { page in
+                Button { nav.page = page } label: {
+                    HStack(spacing: 9) {
+                        Image(systemName: page.symbol)
+                            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(page.color.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        Text(page.title).font(.system(size: 13))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    .background(nav.page == page ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .frame(width: 210)
+        .background(Color(nsColor: .underPageBackgroundColor).opacity(0.5))
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch nav.page {
+        case .general: GeneralPage()
+        case .modules: ModulesPage()
+        case .appearance: AppearancePage()
+        case .tools: ToolsPage()
+        case .volume: VolumePage()
+        case .actions: ActionsPage()
+        case .permissions: PermissionsPage()
+        case .about: AboutPage()
+        }
     }
 }
 
-private func colorBinding(_ hex: Binding<String>) -> Binding<Color> {
-    Binding(get: { Color(hex: hex.wrappedValue) }, set: { hex.wrappedValue = $0.hex })
-}
+// MARK: Allgemein
 
-struct ModulesTab: View {
-    @AppStorage("modMusic") private var music = true
-    @AppStorage("modTimer") private var timer = true
-    @AppStorage("modCaffeine") private var caffeine = true
-    @AppStorage("modBattery") private var battery = true
-    @AppStorage("modStats") private var stats = true
-    @AppStorage("modHUD") private var hud = true
-    @AppStorage("modGestures") private var gestures = true
-    @AppStorage("modActions") private var actions = true
-    @AppStorage("pomoWork") private var work = 25
-    @AppStorage("pomoBreak") private var rest = 5
+struct GeneralPage: View {
+    @AppStorage("showMenuBarIcon") private var menuIcon = true
+    @AppStorage("display") private var display = "notch"
+    @AppStorage("hotkey") private var hotkey = "ctrlOptSpace"
+    @AppStorage("hideInFullscreen") private var hideFullscreen = true
+    @AppStorage("haptics") private var haptics = true
+    @AppStorage("hoverExpand") private var hover = true
+    @AppStorage("hoverDelay") private var delay = 0.12
+    @AppStorage("collapseDelay") private var collapseDelay = 0.28
+    @AppStorage("startTab") private var startTab = "last"
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginError: String?
+    @State private var confirmReset = false
+    @State private var note: String?
 
     var body: some View {
         Form {
-            Section("Module an/aus (ein ausgeschaltetes Modul verbraucht nichts)") {
-                Toggle("Spotify & Musik", isOn: $music)
-                Toggle("Timer & Pomodoro", isOn: $timer)
-                Toggle("Koffein-Button", isOn: $caffeine)
-                Toggle("Akku & Laden", isOn: $battery)
-                Toggle("Stats (CPU, GPU, RAM)", isOn: $stats)
-                Toggle("Lautstärke/Helligkeit als Seiten-Bar", isOn: $hud)
-                Toggle("Trackpad-Gesten am Rand", isOn: $gestures)
-                Toggle("Eigene Aktionen", isOn: $actions)
+            Section("Start") {
+                ToggleRow(title: "Beim Anmelden starten", subtitle: loginError ?? "Islet startet automatisch mit dem Mac.", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { setLaunch($0) }))
+                ToggleRow(title: "Symbol in der Menüleiste", subtitle: "Ohne Symbol öffnest du die Einstellungen über das Zahnrad der Insel.", isOn: $menuIcon)
             }
-            Section("Pomodoro") {
-                Stepper("Fokus: \(work) Min", value: $work, in: 1...120)
-                Stepper("Pause: \(rest) Min", value: $rest, in: 1...60)
+            Section("Insel") {
+                Picker("Bildschirm", selection: $display) {
+                    Text("Notch-Display (Standard)").tag("notch")
+                    Text("Hauptbildschirm").tag("main")
+                    Text("Bildschirm mit der Maus").tag("mouse")
+                }
+                Picker("Tastenkürzel zum Öffnen", selection: $hotkey) {
+                    ForEach(Hotkey.options, id: \.id) { Text($0.label).tag($0.id) }
+                }
+                Picker("Start-Ansicht", selection: $startTab) {
+                    Text("Zuletzt benutzte").tag("last")
+                    Text("Musik").tag("music")
+                    Text("Übersicht").tag("overview")
+                }
+                ToggleRow(title: "In Vollbild-Apps ausblenden", isOn: $hideFullscreen)
+                ToggleRow(title: "Haptisches Feedback", subtitle: "Leichtes Klopfen auf dem Trackpad beim Aufklappen und Antippen.", isOn: $haptics)
+            }
+            Section("Verhalten") {
+                ToggleRow(title: "Beim Überfahren aufklappen", subtitle: "Aus: Die Insel öffnet nur per Klick oder Tastenkürzel.", isOn: $hover)
+                SliderRow(title: "Aufklappen nach", value: $delay, range: 0...0.8, format: { String(format: "%.2f s", $0) })
+                    .disabled(!hover)
+                SliderRow(title: "Zuklappen nach", value: $collapseDelay, range: 0.05...1.5, format: { String(format: "%.2f s", $0) })
+            }
+            Section("Einstellungen sichern") {
+                HStack {
+                    Button("Exportieren …") { export() }
+                    Button("Importieren …") { importFile() }
+                    Spacer()
+                    Button("Alles zurücksetzen", role: .destructive) { confirmReset = true }
+                }
+                if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+        .formStyle(.grouped)
+        .confirmationDialog("Alle Einstellungen auf Standard zurücksetzen?", isPresented: $confirmReset) {
+            Button("Zurücksetzen", role: .destructive) {
+                Pref.reset(Pref.allKeys)
+                note = "Alles zurückgesetzt."
+            }
+        } message: { Text("Das betrifft Module, Farben, Größen und eigene Aktionen.") }
+    }
+
+    private func setLaunch(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            loginError = nil
+        } catch {
+            loginError = "Nicht möglich: \(error.localizedDescription)"
+        }
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    private func export() {
+        guard let data = Pref.exportJSON() else { return }
+        let p = NSSavePanel()
+        p.allowedContentTypes = [.json]
+        p.nameFieldStringValue = "islet-einstellungen.json"
+        if p.runModal() == .OK, let url = p.url {
+            do { try data.write(to: url); note = "Exportiert nach \(url.lastPathComponent)." }
+            catch { note = "Export fehlgeschlagen: \(error.localizedDescription)" }
+        }
+    }
+
+    private func importFile() {
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.json]
+        if p.runModal() == .OK, let url = p.url, let data = try? Data(contentsOf: url) {
+            note = Pref.importJSON(data) ? "Importiert aus \(url.lastPathComponent)." : "Datei konnte nicht gelesen werden."
+        }
+    }
+}
+
+// MARK: Module
+
+struct ModulesPage: View {
+    var body: some View {
+        Form {
+            Section {
+                ModuleRow(symbol: "music.note", color: .pink, title: "Musik", subtitle: "Spotify: Cover, Titel, Steuerung, Fortschritt.", key: "modMusic")
+                ModuleRow(symbol: "cup.and.saucer.fill", color: .orange, title: "Koffein", subtitle: "Mac wach halten, mit Live-Status von caffeinate.", key: "modCaffeine")
+                ModuleRow(symbol: "timer", color: .blue, title: "Timer & Pomodoro", subtitle: "Mit Pause, +5 Min und Anzeige in der Insel.", key: "modTimer")
+                ModuleRow(symbol: "battery.100.bolt", color: .green, title: "Akku & Laden", subtitle: "Ladestand, Hinweis beim Anstecken.", key: "modBattery")
+                ModuleRow(symbol: "cpu", color: .indigo, title: "Stats", subtitle: "CPU, GPU, RAM. Läuft nur bei offener Insel.", key: "modStats")
+                ModuleRow(symbol: "switch.2", color: .teal, title: "Schnell-Schalter", subtitle: "Dunkel/Hell, Stumm, Display aus, Einstellungen.", key: "modToggles")
+                ModuleRow(symbol: "doc.on.clipboard.fill", color: .brown, title: "Zwischenablage", subtitle: "Verlauf der letzten Texte, nur im Arbeitsspeicher.", key: "modClipboard")
+                ModuleRow(symbol: "mic.fill", color: .red, title: "Mikrofon & Kamera", subtitle: "Orange/grüner Punkt, wenn eins benutzt wird.", key: "modIndicators")
+                ModuleRow(symbol: "speaker.wave.3.fill", color: .cyan, title: "Lautstärke & Helligkeit", subtitle: "Seiten-Bar statt System-HUD.", key: "modHUD")
+                ModuleRow(symbol: "hand.draw.fill", color: .purple, title: "Trackpad-Gesten", subtitle: "Am Rand wischen für Lautstärke/Helligkeit.", key: "modGestures")
+                ModuleRow(symbol: "bolt.fill", color: .yellow, title: "Eigene Aktionen", subtitle: "Deine Befehle, Apps und Links als Kacheln.", key: "modActions")
+            } footer: {
+                Text("Ein ausgeschaltetes Modul läuft nicht und verbraucht weder Speicher noch Rechenzeit.")
             }
         }
         .formStyle(.grouped)
     }
 }
 
-struct AppearanceTab: View {
+// MARK: Aussehen
+
+struct AppearancePage: View {
     @AppStorage("accentHex") private var accent = "#0A84FF"
     @AppStorage("activeHex") private var active = "#30D158"
     @AppStorage("tintHex") private var tint = "#000000"
     @AppStorage("style") private var style = "solid"
     @AppStorage("glassStrength") private var strength = 0.55
     @AppStorage("cornerRadius") private var corner = 34.0
-    @AppStorage("expandedWidth") private var width = 540.0
-    @AppStorage("expandedHeight") private var height = 188.0
-    @AppStorage("hoverExpand") private var hover = true
-    @AppStorage("hoverDelay") private var delay = 0.12
+    @AppStorage("expandedWidth") private var width = 560.0
+    @AppStorage("expandedHeight") private var height = 226.0
+    @AppStorage("compactMusic") private var cMusic = true
+    @AppStorage("compactCaffeine") private var cCaffeine = true
+    @AppStorage("compactTimer") private var cTimer = true
+    @AppStorage("compactCharge") private var cCharge = true
+    @AppStorage("compactIndicators") private var cInd = true
 
     var body: some View {
         Form {
+            Section {
+                IslandPreview().padding(.vertical, 4)
+            }
+            Section("Farbvorlagen") {
+                HStack(spacing: 16) { ForEach(Theme.all) { ThemeSwatch(theme: $0) } }
+                    .frame(maxWidth: .infinity).padding(.vertical, 4)
+            }
             Section("Farben") {
-                ColorPicker("Akzent (Slider, Timer, Stats)", selection: colorBinding($accent), supportsOpacity: false)
-                ColorPicker("Aktiv (Koffein an, Akku)", selection: colorBinding($active), supportsOpacity: false)
-                ColorPicker("Insel-Grundfarbe", selection: colorBinding($tint), supportsOpacity: false)
+                ColorRow(title: "Akzent", subtitle: "Regler, Timer, Statistik, Musik-Symbole", hex: $accent)
+                ColorRow(title: "Aktiv", subtitle: "Koffein an, Akku, Lade-Hinweis", hex: $active)
+                ColorRow(title: "Grundfarbe", subtitle: "Hintergrund der geöffneten Insel. Die kompakte Insel bleibt neben der Notch schwarz.", hex: $tint)
                 Picker("Stil", selection: $style) {
-                    Text("Schwarz (wie iPhone)").tag("solid")
+                    Text("Schwarz").tag("solid")
                     Text("Liquid Glass").tag("glass")
                 }
+                .pickerStyle(.segmented)
                 if style == "glass" {
-                    LabeledContent("Tönung") { Slider(value: $strength, in: 0...1).frame(width: 200) }
+                    SliderRow(title: "Tönung", value: $strength, range: 0...1, format: { "\(Int($0 * 100)) %" })
                 }
             }
             Section("Größe & Form") {
-                LabeledContent("Breite \(Int(width))") { Slider(value: $width, in: 480...900, step: 10).frame(width: 200) }
-                LabeledContent("Höhe \(Int(height))") { Slider(value: $height, in: 160...340, step: 2).frame(width: 200) }
-                LabeledContent("Rundung \(Int(corner))") { Slider(value: $corner, in: 12...46).frame(width: 200) }
+                SliderRow(title: "Breite", value: $width, range: 480...900, step: 10, format: { "\(Int($0)) pt" })
+                SliderRow(title: "Höhe", value: $height, range: 180...360, step: 2, format: { "\(Int($0)) pt" })
+                SliderRow(title: "Rundung", value: $corner, range: 12...46, format: { "\(Int($0)) pt" })
             }
-            Section("Verhalten") {
-                Toggle("Beim Überfahren aufklappen", isOn: $hover)
-                LabeledContent("Verzögerung \(String(format: "%.2f", delay)) s") { Slider(value: $delay, in: 0...0.8).frame(width: 200) }
+            Section("Kompakte Insel zeigt") {
+                ToggleRow(title: "Cover bei laufender Musik", isOn: $cMusic)
+                ToggleRow(title: "Koffein-Symbol, wenn aktiv", isOn: $cCaffeine)
+                ToggleRow(title: "Timer-Restzeit", isOn: $cTimer)
+                ToggleRow(title: "Lade-Hinweis beim Anstecken", isOn: $cCharge)
+                ToggleRow(title: "Mikrofon- und Kamera-Punkt", isOn: $cInd)
             }
             Section {
-                Button("Auf Standard zurücksetzen") {
-                    for k in ["accentHex", "activeHex", "tintHex", "style", "glassStrength", "cornerRadius", "expandedWidth", "expandedHeight", "hoverExpand", "hoverDelay"] {
-                        UserDefaults.standard.set(Pref.defaults[k], forKey: k)
-                    }
+                Button("Aussehen zurücksetzen") {
+                    Pref.reset(["accentHex", "activeHex", "tintHex", "style", "glassStrength", "cornerRadius", "expandedWidth", "expandedHeight",
+                                "compactMusic", "compactCaffeine", "compactTimer", "compactCharge", "compactIndicators"])
                 }
             }
         }
@@ -97,7 +249,55 @@ struct AppearanceTab: View {
     }
 }
 
-struct HUDTab: View {
+// MARK: Koffein & Timer
+
+struct ToolsPage: View {
+    @AppStorage("caffeineMode") private var mode = "full"
+    @AppStorage("caffeineDefaultMinutes") private var cafMin = 0
+    @AppStorage("timerDefaultMinutes") private var timerMin = 10
+    @AppStorage("timerSound") private var sound = true
+    @AppStorage("pomoWork") private var work = 25
+    @AppStorage("pomoBreak") private var rest = 5
+    @AppStorage("clipboardMax") private var clipMax = 10
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Modus", selection: $mode) {
+                    Text("Display und System wach").tag("full")
+                    Text("Nur System wach (Display darf ausgehen)").tag("system")
+                }
+                Picker("Standard-Dauer", selection: $cafMin) {
+                    Text("Unbegrenzt").tag(0)
+                    Text("15 Minuten").tag(15)
+                    Text("30 Minuten").tag(30)
+                    Text("1 Stunde").tag(60)
+                    Text("2 Stunden").tag(120)
+                    Text("4 Stunden").tag(240)
+                    Text("8 Stunden").tag(480)
+                }
+            } header: { Text("Koffein") } footer: {
+                Text("Der Button startet `caffeinate` mit diesen Werten und ist grün, solange irgendein caffeinate läuft, auch wenn du es selbst im Terminal gestartet hast. Rechtsklick wählt eine andere Dauer.")
+            }
+            Section("Timer") {
+                Stepper("Standard-Dauer: \(timerMin) Min", value: $timerMin, in: 1...180)
+                ToggleRow(title: "Ton beim Ablauf", isOn: $sound)
+            }
+            Section("Pomodoro") {
+                Stepper("Fokus: \(work) Min", value: $work, in: 1...120)
+                Stepper("Pause: \(rest) Min", value: $rest, in: 1...60)
+            }
+            Section("Zwischenablage") {
+                Stepper("Einträge im Verlauf: \(clipMax)", value: $clipMax, in: 3...30)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: Lautstärke & Gesten
+
+struct VolumePage: View {
     @AppStorage("hudSide") private var side = "right"
     @AppStorage("hudSeconds") private var seconds = 1.6
     @AppStorage("hudReplaceSystem") private var replace = true
@@ -109,65 +309,96 @@ struct HUDTab: View {
 
     var body: some View {
         Form {
+            if !trusted {
+                Section {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("Für Tasten und Gesten fehlt die Bedienungshilfen-Freigabe.")
+                        Spacer()
+                        Button("Freigeben") { InputTap.requestPermission() }
+                    }
+                }
+            }
             Section("Seiten-Bar") {
                 Picker("Seite", selection: $side) { Text("Rechts").tag("right"); Text("Links").tag("left") }
-                LabeledContent("Anzeigedauer \(String(format: "%.1f", seconds)) s") { Slider(value: $seconds, in: 0.6...5).frame(width: 200) }
-                Toggle("System-HUD ersetzen (Tasten abfangen)", isOn: $replace)
+                    .pickerStyle(.segmented)
+                SliderRow(title: "Anzeigedauer", value: $seconds, range: 0.6...5, format: { String(format: "%.1f s", $0) })
+                ToggleRow(title: "System-Anzeige ersetzen", subtitle: "Fängt die Lautstärke- und Helligkeitstasten ab (Bedienungshilfen nötig). ⇧⌥ + Taste = feine Schritte.", isOn: $replace)
             }
-            Section("Trackpad-Gesten") {
-                Picker("Linker Rand", selection: $left) { Text("Lautstärke").tag("volume"); Text("Helligkeit").tag("brightness"); Text("Aus").tag("off") }
-                Picker("Rechter Rand", selection: $right) { Text("Lautstärke").tag("volume"); Text("Helligkeit").tag("brightness"); Text("Aus").tag("off") }
-                LabeledContent("Randbreite \(Int(edge * 100)) %") { Slider(value: $edge, in: 0.04...0.2).frame(width: 200) }
-                LabeledContent("Empfindlichkeit \(String(format: "%.1f", sens))") { Slider(value: $sens, in: 0.4...3).frame(width: 200) }
-            }
-            Section("Berechtigung") {
-                HStack {
-                    Image(systemName: trusted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundStyle(trusted ? .green : .orange)
-                    Text(trusted ? "Bedienungshilfen erlaubt" : "Bedienungshilfen fehlen (für Tasten und Gesten nötig)")
-                    Spacer()
-                    if !trusted {
-                        Button("Anfragen") { InputTap.requestPermission() }
-                    }
-                    Button("Neu prüfen") { trusted = InputTap.trusted }
-                }
+            Section {
+                Picker("Linker Rand", selection: $left) { gestureOptions }
+                Picker("Rechter Rand", selection: $right) { gestureOptions }
+                SliderRow(title: "Randbreite", value: $edge, range: 0.04...0.2, format: { "\(Int($0 * 100)) %" })
+                SliderRow(title: "Empfindlichkeit", value: $sens, range: 0.4...3, format: { String(format: "%.1f×", $0) })
+            } header: { Text("Trackpad-Gesten") } footer: {
+                Text("Mit einem Finger am Rand des Trackpads nach oben oder unten wischen. Das Scrollen wird dabei unterdrückt.")
             }
         }
         .formStyle(.grouped)
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in trusted = InputTap.trusted }
+    }
+
+    @ViewBuilder private var gestureOptions: some View {
+        Text("Lautstärke").tag("volume")
+        Text("Helligkeit").tag("brightness")
+        Text("Aus").tag("off")
     }
 }
 
-struct ActionsTab: View {
+// MARK: Aktionen
+
+struct ActionsPage: View {
     @State private var items = ActionItem.load()
 
+    private static let templates: [ActionItem] = [
+        ActionItem(title: "Screenshot", symbol: "camera.viewfinder", kind: .shell, value: "screencapture -ic"),
+        ActionItem(title: "Terminal", symbol: "terminal", kind: .app, value: "Terminal"),
+        ActionItem(title: "Safari", symbol: "safari", kind: .app, value: "Safari"),
+        ActionItem(title: "Notizen", symbol: "note.text", kind: .app, value: "Notes"),
+        ActionItem(title: "Downloads", symbol: "arrow.down.circle", kind: .shell, value: "open ~/Downloads"),
+        ActionItem(title: "Systemeinst.", symbol: "gearshape", kind: .app, value: "System Settings"),
+    ]
+
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Eigene Kacheln im Panel: Befehl, App oder Link.").font(.callout).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Jede Aktion erscheint als Kachel im Reiter ⚡︎ der Insel. Ziehen sortiert um.")
+                .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 26).padding(.top, 6)
             List {
                 ForEach($items) { $item in
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Image(systemName: item.symbol).frame(width: 22)
+                        HStack(spacing: 8) {
+                            Image(systemName: item.symbol).frame(width: 24).foregroundStyle(.secondary)
                             TextField("Titel", text: $item.title)
-                            TextField("SF Symbol", text: $item.symbol).frame(width: 130)
+                            TextField("SF Symbol", text: $item.symbol).frame(width: 140).foregroundStyle(.secondary)
                         }
-                        HStack {
+                        HStack(spacing: 8) {
                             Picker("", selection: $item.kind) {
                                 ForEach(ActionItem.Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                            }.labelsHidden().frame(width: 90)
+                            }
+                            .labelsHidden().frame(width: 100)
                             TextField(placeholder(item.kind), text: $item.value)
                             Button(role: .destructive) { items.removeAll { $0.id == item.id } } label: { Image(systemName: "trash") }
+                                .buttonStyle(.borderless)
                         }
                     }
                     .padding(.vertical, 4)
                 }
+                .onMove { items.move(fromOffsets: $0, toOffset: $1) }
             }
+            .listStyle(.inset)
             HStack {
-                Button { items.append(ActionItem()) } label: { Label("Aktion hinzufügen", systemImage: "plus") }
+                Button { items.append(ActionItem()) } label: { Label("Neue Aktion", systemImage: "plus") }
+                Menu("Vorlage hinzufügen") {
+                    ForEach(Self.templates) { t in
+                        Button { var n = t; n.id = UUID(); items.append(n) } label: { Label(t.title, systemImage: t.symbol) }
+                    }
+                }
+                .fixedSize()
                 Spacer()
+                Text("\(items.count) Aktionen").font(.caption).foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 26).padding(.bottom, 16)
         }
-        .padding()
         .onChange(of: items) { ActionItem.save($0) }
     }
 
@@ -177,5 +408,102 @@ struct ActionsTab: View {
         case .app: return "App-Name oder Pfad"
         case .url: return "https://…"
         }
+    }
+}
+
+// MARK: Berechtigungen
+
+struct PermissionsPage: View {
+    @State private var trusted = InputTap.trusted
+    @State private var spotify = Perm.automation("com.spotify.client")
+    @State private var events = Perm.automation("com.apple.systemevents")
+
+    var body: some View {
+        Form {
+            Section {
+                row(symbol: "hand.raised.fill", title: "Bedienungshilfen", detail: "Lautstärke-/Helligkeitstasten abfangen und Scrollen bei Gesten unterdrücken.",
+                    ok: trusted, label: trusted ? "Erlaubt" : "Fehlt") {
+                    InputTap.requestPermission()
+                } open: { open("Privacy_Accessibility") }
+                row(symbol: "music.note", title: "Automation: Spotify", detail: "Titel, Cover und Steuerung. Spotify muss dafür laufen.",
+                    ok: spotify == .granted, label: spotify.label) {
+                    spotify = Perm.automation("com.spotify.client", ask: true)
+                } open: { open("Privacy_Automation") }
+                row(symbol: "moon.fill", title: "Automation: System Events", detail: "Nur für den Dunkel/Hell-Schalter. Die Abfrage erscheint beim ersten Umschalten.",
+                    ok: events == .granted, label: events.label, canAsk: events != .notRunning) {
+                    events = Perm.automation("com.apple.systemevents", ask: true)
+                } open: { open("Privacy_Automation") }
+            } footer: {
+                Text("Islet ist nur lokal signiert. Nach einem Neubau kann macOS die Freigaben neu verlangen. Dann in den Systemeinstellungen den Schalter für Islet aus- und wieder einschalten.")
+            }
+        }
+        .formStyle(.grouped)
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in refresh() }
+    }
+
+    private func refresh() {
+        trusted = InputTap.trusted
+        spotify = Perm.automation("com.spotify.client")
+        events = Perm.automation("com.apple.systemevents")
+    }
+
+    private func open(_ pane: String) {
+        if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(u) }
+    }
+
+    private func row(symbol: String, title: String, detail: String, ok: Bool, label: String, canAsk: Bool = true,
+                     ask: @escaping () -> Void, open: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol).font(.system(size: 15)).frame(width: 26).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            HStack(spacing: 5) {
+                Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill").foregroundStyle(ok ? .green : .orange)
+                Text(label).font(.caption).foregroundStyle(.secondary)
+            }
+            if !ok && canAsk { Button("Anfragen", action: ask) }
+            Button("Öffnen", action: open)
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+// MARK: Über
+
+struct AboutPage: View {
+    @State private var mb = memoryFootprintMB()
+    private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 14) {
+                    Image(systemName: "capsule.fill").font(.system(size: 26)).frame(width: 56, height: 56)
+                        .foregroundStyle(.white).background(Color.black.gradient, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Islet").font(.system(size: 18, weight: .bold))
+                        Text("Version \(version) · macOS \(ProcessInfo.processInfo.operatingSystemVersion.majorVersion)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            Section("Verbrauch jetzt") {
+                LabeledContent("Arbeitsspeicher dieser App", value: String(format: "%.0f MB", mb))
+                Text("Gemessen wie in der Aktivitätsanzeige (Speicherbedarf). Ein ausgeschaltetes Modul verbraucht nichts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Open Source") {
+                Text("Islet ist freie Software unter der MIT-Lizenz, geschrieben in Swift und SwiftUI ohne Fremdbibliotheken. Atoll steht unter GPL; Islet ist eine unabhängige Neuentwicklung ohne Atoll-Code.")
+                    .font(.callout)
+                Text("Helligkeit und Trackpad-Gesten nutzen private Apple-Schnittstellen, die zur Laufzeit geladen werden.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in mb = memoryFootprintMB() }
     }
 }

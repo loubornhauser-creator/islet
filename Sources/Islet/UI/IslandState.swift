@@ -25,12 +25,13 @@ final class IslandGeometry: ObservableObject {
 
 /// Ansichten der geöffneten Insel (Leiste oben, wie bei Atoll).
 enum IslandTab: String, CaseIterable, Identifiable {
-    case music, overview, actions
+    case music, overview, clipboard, actions
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .music: return "music.note"
         case .overview: return "square.grid.2x2.fill"
+        case .clipboard: return "doc.on.clipboard.fill"
         case .actions: return "bolt.fill"
         }
     }
@@ -38,6 +39,7 @@ enum IslandTab: String, CaseIterable, Identifiable {
         switch self {
         case .music: return "Musik"
         case .overview: return "Übersicht"
+        case .clipboard: return "Zwischenablage"
         case .actions: return "Aktionen"
         }
     }
@@ -57,9 +59,12 @@ final class IslandState: ObservableObject {
             guard Pref.bool("hoverExpand"), !expanded else { return }
             schedule(after: Pref.double("hoverDelay")) { self.set(true) }
         } else if expanded && !pinned {
-            schedule(after: 0.28) { self.set(false) }
+            schedule(after: Pref.double("collapseDelay")) { self.set(false) }
         }
     }
+
+    /// Tastenkürzel: öffnet fest (bleibt offen) oder schließt.
+    func hotkeyToggle() { toggle() }
 
     func toggle() {
         work?.cancel()
@@ -83,6 +88,14 @@ final class IslandState: ObservableObject {
     private func set(_ value: Bool) {
         if !value { pinned = false }
         guard expanded != value else { return }
+        if value {
+            switch Pref.string("startTab") {
+            case "music": tab = .music
+            case "overview": tab = .overview
+            default: break
+            }
+            Haptics.tap()
+        }
         expanded = value
         Caffeine.shared.setFast(value)
     }

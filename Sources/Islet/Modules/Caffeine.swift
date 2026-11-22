@@ -43,20 +43,30 @@ final class Caffeine: ObservableObject {
     func refresh() {
         let now = Self.caffeinateRunning()
         if now != active { active = now }
+        if !now && endDate != nil { endDate = nil }
     }
 
-    func toggle() { active ? turnOff() : turnOn(seconds: nil) }
+    /// Ende der von Islet gestarteten Sitzung (nil = unbegrenzt oder von außen gestartet).
+    @Published var endDate: Date?
+
+    func toggle() {
+        if active { turnOff(); return }
+        let m = Pref.int("caffeineDefaultMinutes")
+        turnOn(seconds: m > 0 ? m * 60 : nil)
+    }
 
     func turnOn(seconds: Int?) {
         turnOff(refreshNow: false)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
-        var args = ["-dims"]
+        // full: Display + System wach. system: nur das System, das Display darf ausgehen.
+        var args = [Pref.string("caffeineMode") == "system" ? "-ims" : "-dims"]
         if let seconds { args += ["-t", String(seconds)] }
         p.arguments = args
-        p.terminationHandler = { [weak self] _ in DispatchQueue.main.async { self?.refresh() } }
+        p.terminationHandler = { [weak self] _ in DispatchQueue.main.async { self?.endDate = nil; self?.refresh() } }
         try? p.run()
         process = p
+        endDate = seconds.map { Date().addingTimeInterval(TimeInterval($0)) }
         active = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.refresh() }
     }
@@ -65,6 +75,7 @@ final class Caffeine: ObservableObject {
         process?.terminationHandler = nil
         process?.terminate()
         process = nil
+        endDate = nil
         // Auch ein im Terminal gestartetes caffeinate beenden.
         let k = Process()
         k.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")

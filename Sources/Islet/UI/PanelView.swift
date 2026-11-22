@@ -11,13 +11,16 @@ struct PanelView: View {
     @AppStorage("modCaffeine") private var modCaffeine = true
     @AppStorage("modBattery") private var modBattery = true
     @AppStorage("modStats") private var modStats = true
+    @AppStorage("modToggles") private var modToggles = true
+    @AppStorage("modClipboard") private var modClipboard = true
     @AppStorage("modActions") private var modActions = true
     @Namespace private var tabSpace
 
     private var tabs: [IslandTab] {
         var t: [IslandTab] = []
         if modMusic { t.append(.music) }
-        if modCaffeine || modTimer || modStats || (modBattery && battery.hasBattery) { t.append(.overview) }
+        if modCaffeine || modTimer || modStats || modToggles || (modBattery && battery.hasBattery) { t.append(.overview) }
+        if modClipboard { t.append(.clipboard) }
         if modActions { t.append(.actions) }
         return t
     }
@@ -31,8 +34,13 @@ struct PanelView: View {
                 switch current {
                 case .music: MusicView()
                 case .overview: OverviewView()
+                case .clipboard: ClipboardView()
                 case .actions: ActionsView()
-                case nil: Text("Alle Module sind aus.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                case nil:
+                    VStack(spacing: 8) {
+                        Text("Alle Module sind aus.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                        PillButton(title: "Einstellungen öffnen") { SettingsWindow.show() }
+                    }
                 }
             }
             .id(current)
@@ -49,7 +57,7 @@ struct PanelView: View {
         HStack(spacing: 0) {
             HStack(spacing: 4) {
                 ForEach(tabs) { tab in
-                    Button { state.tab = tab } label: {
+                    Button { Haptics.tap(); state.tab = tab } label: {
                         Image(systemName: tab.symbol)
                             .font(.system(size: 12, weight: .semibold))
                             .frame(width: 34, height: 24)
@@ -81,51 +89,44 @@ struct PanelView: View {
     }
 }
 
-/// Übersicht: Koffein, Timer, Akku und Stats in einer ruhigen Reihe.
+struct PillButton: View {
+    let title: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
+                .padding(.horizontal, 12).padding(.vertical, 5)
+                .background(.white.opacity(0.14), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: Übersicht
+
+/// Übersicht: oben Koffein, Timer, Akku, Stats; darunter Schnell-Schalter.
 struct OverviewView: View {
     @AppStorage("modTimer") private var modTimer = true
     @AppStorage("modCaffeine") private var modCaffeine = true
     @AppStorage("modBattery") private var modBattery = true
     @AppStorage("modStats") private var modStats = true
+    @AppStorage("modToggles") private var modToggles = true
     @ObservedObject private var battery = Battery.shared
 
     var body: some View {
-        HStack(spacing: 10) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
             if modCaffeine { CaffeineTile() }
             if modTimer { TimerTile() }
             if modBattery && battery.hasBattery { BatteryTile() }
             if modStats { StatsTile() }
-        }
-        .frame(maxHeight: .infinity)
-    }
-}
-
-/// Eigene Aktionen als Kacheln.
-struct ActionsView: View {
-    @AppStorage("actionsJSON") private var actionsJSON = "[]"
-
-    private var actions: [ActionItem] {
-        (try? JSONDecoder().decode([ActionItem].self, from: Data(actionsJSON.utf8))) ?? []
-    }
-
-    var body: some View {
-        if actions.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "bolt").font(.system(size: 24, weight: .light))
-                Text("Noch keine Aktionen").font(.system(size: 12, weight: .medium)).opacity(0.7)
-                Button("Aktion anlegen") { SettingsWindow.show() }
-                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
-                    .padding(.horizontal, 12).padding(.vertical, 5).background(.white.opacity(0.14), in: Capsule())
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
-                    ForEach(actions) { ActionTile(item: $0) }
-                }
+            if modToggles {
+                DarkModeTile()
+                MuteTile()
+                DisplayOffTile()
+                SettingsTile()
             }
         }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 }
 
@@ -136,16 +137,17 @@ struct Tile<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
-        Button(action: { action?() }) {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        Button(action: { Haptics.tap(); action?() }) {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(8)
+                .padding(6)
         }
         .buttonStyle(TilePressStyle())
-        .frame(height: 92)
+        .frame(height: 76)
         .background(tint.map { AnyShapeStyle($0.opacity(0.92)) } ?? AnyShapeStyle(Color.white.opacity(0.10)), in: shape)
         .clipShape(shape)
+        .animation(.easeOut(duration: 0.2), value: tint != nil)
     }
 }
 
@@ -157,6 +159,10 @@ struct TilePressStyle: ButtonStyle {
     }
 }
 
+private func tileLabel(_ s: String) -> some View {
+    Text(s).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+}
+
 // MARK: Koffein
 
 struct CaffeineTile: View {
@@ -165,22 +171,28 @@ struct CaffeineTile: View {
 
     var body: some View {
         Tile(tint: caffeine.active ? Color(hex: activeHex) : nil, action: { caffeine.toggle() }) {
-            VStack(spacing: 5) {
+            VStack(spacing: 4) {
                 Image(systemName: caffeine.active ? "cup.and.heat.waves.fill" : "cup.and.saucer")
-                    .font(.system(size: 22, weight: .medium))
+                    .font(.system(size: 21, weight: .medium))
                     .contentTransition(.symbolEffect(.replace))
-                Text(caffeine.active ? "Wach" : "Koffein").font(.system(size: 11, weight: .semibold))
+                if caffeine.active, let end = caffeine.endDate, end > Date() {
+                    Text(timerInterval: Date()...end, countsDown: true).monospacedDigit()
+                        .font(.system(size: 11, weight: .semibold))
+                } else {
+                    tileLabel(caffeine.active ? "Wach" : "Koffein")
+                }
             }
             .foregroundStyle(.white)
         }
         .contextMenu {
             Button("15 Minuten") { caffeine.turnOn(seconds: 15 * 60) }
+            Button("30 Minuten") { caffeine.turnOn(seconds: 30 * 60) }
             Button("1 Stunde") { caffeine.turnOn(seconds: 3600) }
             Button("3 Stunden") { caffeine.turnOn(seconds: 3 * 3600) }
             Button("Unbegrenzt") { caffeine.turnOn(seconds: nil) }
             if caffeine.active { Divider(); Button("Ausschalten") { caffeine.turnOff() } }
         }
-        .help("Klick: an/aus. Rechtsklick: Dauer wählen. Zeigt live, ob caffeinate läuft.")
+        .help("Klick: an/aus. Rechtsklick: Dauer wählen. Zeigt live, ob caffeinate läuft (auch aus dem Terminal).")
     }
 }
 
@@ -189,33 +201,45 @@ struct CaffeineTile: View {
 struct TimerTile: View {
     @ObservedObject private var timer = CountdownTimer.shared
     @AppStorage("accentHex") private var accentHex = "#0A84FF"
+    @AppStorage("timerDefaultMinutes") private var defaultMin = 10
 
     var body: some View {
-        Tile(tint: timer.running ? Color(hex: accentHex) : nil, action: { if timer.running { timer.stop() } else { timer.start(minutes: 10) } }) {
-            VStack(spacing: 5) {
-                if timer.running, let end = timer.endDate {
-                    Text(timerInterval: Date()...max(end, Date().addingTimeInterval(1)), countsDown: true, showsHours: false)
-                        .monospacedDigit().font(.system(size: 19, weight: .semibold))
-                    Text(timer.label).font(.system(size: 11, weight: .semibold)).opacity(0.8)
+        Tile(tint: timer.running && !timer.isPaused ? Color(hex: accentHex) : nil, action: tap) {
+            VStack(spacing: 4) {
+                if timer.running {
+                    Group {
+                        if let rest = timer.pausedRemaining {
+                            Text(formatTime(rest))
+                        } else if let end = timer.endDate {
+                            Text(timerInterval: Date()...max(end, Date().addingTimeInterval(1)), countsDown: true, showsHours: false)
+                        }
+                    }
+                    .monospacedDigit().font(.system(size: 19, weight: .semibold))
+                    tileLabel(timer.label).opacity(0.8)
                 } else {
-                    Image(systemName: "timer").font(.system(size: 22, weight: .medium))
-                    Text("Timer").font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "timer").font(.system(size: 21, weight: .medium))
+                    tileLabel("\(defaultMin) Min")
                 }
             }
             .foregroundStyle(.white)
         }
         .contextMenu {
-            Button("5 Minuten") { timer.start(minutes: 5) }
-            Button("10 Minuten") { timer.start(minutes: 10) }
-            Button("15 Minuten") { timer.start(minutes: 15) }
-            Button("30 Minuten") { timer.start(minutes: 30) }
-            Button("60 Minuten") { timer.start(minutes: 60) }
+            ForEach([5, 10, 15, 25, 30, 45, 60], id: \.self) { m in
+                Button("\(m) Minuten") { timer.start(minutes: Double(m)) }
+            }
             Divider()
             Button("Pomodoro starten") { timer.startPomodoro() }
-            if timer.running { Divider(); Button("Stoppen") { timer.stop() } }
+            if timer.running {
+                Divider()
+                Button("+ 5 Minuten") { timer.add(minutes: 5) }
+                Button(timer.isPaused ? "Fortsetzen" : "Pausieren") { timer.togglePause() }
+                Button("Stoppen") { timer.stop() }
+            }
         }
-        .help("Klick: 10 Minuten starten/stoppen. Rechtsklick: Dauer oder Pomodoro.")
+        .help("Klick: starten, dann pausieren/fortsetzen. Rechtsklick: Dauer, Pomodoro, +5 Min, Stoppen.")
     }
+
+    private func tap() { timer.running ? timer.togglePause() : timer.startDefault() }
 }
 
 // MARK: Akku
@@ -226,17 +250,20 @@ struct BatteryTile: View {
 
     var body: some View {
         Tile {
-            VStack(spacing: 5) {
+            VStack(spacing: 3) {
                 ZStack {
                     Circle().stroke(.white.opacity(0.18), lineWidth: 4)
                     Circle().trim(from: 0, to: CGFloat(battery.percent) / 100)
                         .stroke(battery.percent <= 20 && !battery.pluggedIn ? Color.red : Color(hex: activeHex),
                                 style: StrokeStyle(lineWidth: 4, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    if battery.pluggedIn { Image(systemName: "bolt.fill").font(.system(size: 11)) }
+                    Text("\(battery.percent)").font(.system(size: 12, weight: .bold)).monospacedDigit()
                 }
-                .frame(width: 34, height: 34)
-                Text("\(battery.percent)%").font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                .frame(width: 38, height: 38)
+                HStack(spacing: 2) {
+                    if battery.pluggedIn { Image(systemName: "bolt.fill").font(.system(size: 8)) }
+                    tileLabel(battery.charging ? "Lädt" : (battery.pluggedIn ? "Netz" : "Akku"))
+                }
             }
             .foregroundStyle(.white)
         }
@@ -257,6 +284,7 @@ struct StatsTile: View {
                 row("RAM", stats.mem)
             }
             .foregroundStyle(.white)
+            .padding(.horizontal, 4)
         }
         .onAppear { Stats.shared.retain() }
         .onDisappear { Stats.shared.release() }
@@ -274,18 +302,108 @@ struct StatsTile: View {
     }
 }
 
-// MARK: Eigene Aktion
+// MARK: Eigene Aktionen
+
+struct ActionsView: View {
+    @AppStorage("actionsJSON") private var actionsJSON = "[]"
+
+    private var actions: [ActionItem] {
+        (try? JSONDecoder().decode([ActionItem].self, from: Data(actionsJSON.utf8))) ?? []
+    }
+
+    var body: some View {
+        if actions.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "bolt").font(.system(size: 24, weight: .light))
+                Text("Noch keine Aktionen").font(.system(size: 12, weight: .medium)).opacity(0.7)
+                PillButton(title: "Aktion anlegen") { SettingsWindow.show(page: .actions) }
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                    ForEach(actions) { ActionTile(item: $0) }
+                }
+            }
+        }
+    }
+}
 
 struct ActionTile: View {
     let item: ActionItem
     var body: some View {
         Tile(action: { item.run() }) {
-            VStack(spacing: 5) {
-                Image(systemName: item.symbol).font(.system(size: 22, weight: .medium))
-                Text(item.title).font(.system(size: 11, weight: .semibold)).lineLimit(1)
+            VStack(spacing: 4) {
+                Image(systemName: item.symbol).font(.system(size: 21, weight: .medium))
+                tileLabel(item.title)
             }
             .foregroundStyle(.white)
         }
+    }
+}
+
+// MARK: Zwischenablage
+
+struct ClipboardView: View {
+    @ObservedObject private var clip = Clipboard.shared
+
+    var body: some View {
+        if clip.items.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "doc.on.clipboard").font(.system(size: 24, weight: .light))
+                Text("Noch nichts kopiert").font(.system(size: 12, weight: .medium)).opacity(0.7)
+                Text("Texte, die du kopierst, erscheinen hier. Passwörter werden ignoriert.")
+                    .font(.system(size: 10)).opacity(0.45)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VStack(spacing: 6) {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 4) {
+                        ForEach(clip.items) { ClipRow(item: $0) }
+                    }
+                }
+                HStack {
+                    Text("\(clip.items.count) Einträge · Klick kopiert erneut").font(.system(size: 10)).opacity(0.45)
+                    Spacer()
+                    Button("Leeren") { clip.clear() }.buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).opacity(0.6)
+                }
+                .foregroundStyle(.white)
+            }
+        }
+    }
+}
+
+struct ClipRow: View {
+    let item: ClipItem
+    @State private var hover = false
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            Clipboard.shared.copy(item)
+            copied = true
+        } label: {
+            HStack(spacing: 8) {
+                Text(item.preview).font(.system(size: 12)).lineLimit(1)
+                Spacer(minLength: 8)
+                if copied {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                } else {
+                    Text(item.date, style: .relative).font(.system(size: 10)).opacity(0.4)
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(.white.opacity(hover ? 0.16 : 0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 
@@ -305,9 +423,11 @@ struct MusicView: View {
                         if let art = music.artwork { Image(nsImage: art).resizable().scaledToFill() }
                         else { Image(systemName: "music.note").font(.system(size: 28, weight: .light)).frame(maxWidth: .infinity, maxHeight: .infinity).background(.white.opacity(0.10)) }
                     }
-                    .frame(width: 100, height: 100)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .frame(width: 112, height: 112)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                     .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
+                    .onTapGesture { music.open() }
+                    .help("Spotify öffnen")
 
                     VStack(alignment: .leading, spacing: 0) {
                         Text(music.title).font(.system(size: 16, weight: .semibold)).lineLimit(1)
@@ -316,17 +436,13 @@ struct MusicView: View {
                         progress
                         controls.padding(.top, 8)
                     }
-                    .frame(height: 100)
+                    .frame(height: 112)
                 }
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "music.note").font(.system(size: 26, weight: .light))
                     Text(music.running ? "Nichts spielt" : "Spotify ist nicht geöffnet").font(.system(size: 12, weight: .medium)).opacity(0.7)
-                    if !music.running {
-                        Button("Spotify öffnen") { music.open() }
-                            .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 5).background(.white.opacity(0.14), in: Capsule())
-                    }
+                    if !music.running { PillButton(title: "Spotify öffnen") { music.open() } }
                 }
             }
         }
@@ -339,26 +455,21 @@ struct MusicView: View {
             let dur = max(1, music.duration)
             let pos = scrub ?? (music.position / dur)
             HStack(spacing: 7) {
-                Text(fmt(pos * dur)).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 32, alignment: .leading)
+                Text(formatTime(pos * dur)).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 34, alignment: .leading)
                 GlassSlider(value: Binding(get: { pos }, set: { scrub = $0 }), tint: .white,
                             onCommit: { v in music.seek(to: v * dur); scrub = nil })
-                Text("-" + fmt(max(0, dur - pos * dur))).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 36, alignment: .trailing)
+                Text("-" + formatTime(max(0, dur - pos * dur))).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 38, alignment: .trailing)
             }
         }
     }
 
     private var controls: some View {
         HStack(spacing: 34) {
-            Button { music.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 17)) }
-            Button { music.playPause() } label: { Image(systemName: music.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 22)).frame(width: 26) }
-            Button { music.next() } label: { Image(systemName: "forward.fill").font(.system(size: 17)) }
+            Button { Haptics.tap(); music.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 17)) }
+            Button { Haptics.tap(); music.playPause() } label: { Image(systemName: music.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 22)).frame(width: 26) }
+            Button { Haptics.tap(); music.next() } label: { Image(systemName: "forward.fill").font(.system(size: 17)) }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
-    }
-
-    private func fmt(_ s: Double) -> String {
-        let t = Int(max(0, s))
-        return String(format: "%d:%02d", t / 60, t % 60)
     }
 }
