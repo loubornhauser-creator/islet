@@ -221,7 +221,7 @@ struct AppearancePage: View {
     @AppStorage("compactIndicators") private var cInd = true
     @AppStorage("compactCalendar") private var cCal = true
     @AppStorage("compactDevices") private var cDev = true
-    @AppStorage("liveSideItems") private var liveSide = false
+    @AppStorage("liveSideItems") private var liveSide = true
     @ObservedObject private var geo = IslandGeometry.shared
 
     var body: some View {
@@ -252,7 +252,7 @@ struct AppearancePage: View {
                 SliderRow(title: "Rundung", value: $corner, range: 12...46, format: { "\(Int($0)) pt" })
             }
             Section {
-                ToggleRow(title: "Live-Anzeigen neben der Notch", subtitle: "Aus (empfohlen): Die geschlossene Insel ist exakt so groß wie die Notch und verdeckt keine Symbole in der Menüleiste.", isOn: $liveSide)
+                ToggleRow(title: "Live-Anzeigen neben der Notch", subtitle: "Musik, Timer, Koffein usw. erscheinen neben der Notch. Ohne laufende Anzeige ist die Insel exakt so groß wie die Notch. Aus: nie breiter als die Notch.", isOn: $liveSide)
                 Group {
                     ToggleRow(title: "Cover bei laufender Musik", isOn: $cMusic)
                     ToggleRow(title: "Koffein-Symbol, wenn aktiv", isOn: $cCaffeine)

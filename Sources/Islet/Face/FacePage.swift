@@ -87,7 +87,7 @@ struct FacePage: View {
         .sheet(isPresented: $showSetup) { FaceSetupView { showSetup = false; face.reloadCredentials() } }
         .confirmationDialog("Gesicht und Passwort löschen?", isPresented: $confirmDelete) {
             Button("Löschen", role: .destructive) { face.forgetEverything(); enabled = false; typePassword = false }
-        } message: { Text("Beides wird aus dem Schlüsselbund entfernt. Face Unlock wird ausgeschaltet.") }
+        } message: { Text("Beides wird gelöscht. Face Unlock wird ausgeschaltet.") }
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
             trusted = InputTap.trusted
             cam = AVCaptureDevice.authorizationStatus(for: .video)

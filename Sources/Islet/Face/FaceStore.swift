@@ -2,6 +2,8 @@ import Foundation
 import Security
 import OpenDirectory
 import Vision
+import CryptoKit
+import IOKit
 
 /// Ein eingelernter Gesichtsabdruck: Bild-Fingerabdruck (Vision) plus Gesichtsproportionen, samt Kopfhaltung.
 struct FaceSample {
@@ -32,7 +34,7 @@ struct FaceTemplate {
         let enc = JSONEncoder()
         enc.nonConformingFloatEncodingStrategy = .convertToString(positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
         return try? enc.encode(Stored(features: feats, geometry: samples.map(\.geometry), yaw: samples.map(\.yaw),
-                                                 pitch: samples.map(\.pitch), baseFeature: baseFeature, baseGeometry: baseGeometry))
+                                       pitch: samples.map(\.pitch), baseFeature: baseFeature, baseGeometry: baseGeometry))
     }
 
     static func decode(_ data: Data) -> FaceTemplate? {
@@ -48,48 +50,128 @@ struct FaceTemplate {
     }
 }
 
-/// Schlüsselbund und Passwort-Prüfung. Nichts davon landet in einer Datei oder in den Einstellungen.
+/// Speicher für Passwort und Gesichtsvorlage: eine verschlüsselte Datei (AES-GCM), ohne Schlüsselbund-Abfragen.
+/// Der Schlüssel wird aus der Hardware-ID dieses Macs und dem Benutzernamen abgeleitet, die Datei ist also nur auf
+/// diesem Mac und für diesen Benutzer lesbar und liegt nirgends im Klartext. Schutz gegen ein anderes Programm,
+/// das unter deinem Benutzer läuft, bietet das nicht (das gilt für jeden Entsperrer, der ein Passwort tippen muss).
+/// Warum nicht der Schlüsselbund: Seine Abfragen („Islet möchte auf … zugreifen“) erscheinen bei einer lokal signierten
+/// App bei jedem Start und würden am Sperrbildschirm blockieren.
 enum FaceStore {
-    private static let service = "app.islet.faceunlock"
+    private struct Vault: Codable { var password: String?; var template: Data? }
+    private struct Envelope: Codable { var salt: Data; var box: Data }
 
-    private static func query(_ account: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    private static let lock = NSLock()
+    private static var cache: Vault?
+    private static let legacyService = "app.islet.faceunlock"
+
+    private static var fileURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Islet", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("face-vault.bin")
+    }
+
+    // MARK: Verschlüsselung
+
+    private static func platformUUID() -> String {
+        let svc = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { IOObjectRelease(svc) }
+        let v = IORegistryEntryCreateCFProperty(svc, kIOPlatformUUIDKey as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+        return (v as? String) ?? "unknown-platform"
+    }
+
+    private static func key(salt: Data) -> SymmetricKey {
+        let ikm = SymmetricKey(data: Data("\(platformUUID())|\(NSUserName())".utf8))
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: ikm, salt: salt, info: Data("islet.faceunlock.vault.v1".utf8), outputByteCount: 32)
+    }
+
+    private static func readVault() -> Vault {
+        lock.lock(); defer { lock.unlock() }
+        if let c = cache { return c }
+        var v = Vault(password: nil, template: nil)
+        if let data = try? Data(contentsOf: fileURL),
+           let env = try? JSONDecoder().decode(Envelope.self, from: data),
+           let box = try? AES.GCM.SealedBox(combined: env.box),
+           let plain = try? AES.GCM.open(box, using: key(salt: env.salt)),
+           let decoded = try? JSONDecoder().decode(Vault.self, from: plain) {
+            v = decoded
+        }
+        cache = v
+        return v
     }
 
     @discardableResult
-    static func save(_ data: Data, account: String) -> Bool {
-        SecItemDelete(query(account) as CFDictionary)
-        var q = query(account)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        return SecItemAdd(q as CFDictionary, nil) == errSecSuccess
+    private static func writeVault(_ v: Vault) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        cache = v
+        if v.password == nil && v.template == nil { try? FileManager.default.removeItem(at: fileURL); return true }
+        var salt = Data(count: 16)
+        _ = salt.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 16, $0.baseAddress!) }
+        guard let plain = try? JSONEncoder().encode(v),
+              let box = try? AES.GCM.seal(plain, using: key(salt: salt)).combined,
+              let out = try? JSONEncoder().encode(Envelope(salt: salt, box: box)) else { return false }
+        do {
+            try out.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            return true
+        } catch { return false }
     }
 
-    static func load(account: String) -> Data? {
-        var q = query(account)
+    // MARK: Öffentliche Schnittstelle
+
+    static var hasPassword: Bool { readVault().password != nil }
+    static var hasTemplate: Bool { readVault().template != nil }
+
+    @discardableResult static func savePassword(_ pw: String) -> Bool { var v = readVault(); v.password = pw; return writeVault(v) }
+    static func loadPassword() -> String? { readVault().password }
+    @discardableResult static func saveTemplate(_ t: FaceTemplate) -> Bool {
+        guard let d = t.encoded() else { return false }
+        var v = readVault(); v.template = d; return writeVault(v)
+    }
+    static func loadTemplate() -> FaceTemplate? { readVault().template.flatMap(FaceTemplate.decode) }
+
+    static func deleteAll() {
+        writeVault(Vault(password: nil, template: nil))
+        deleteLegacy("password"); deleteLegacy("template")
+    }
+
+    // MARK: Einmalige Übernahme aus dem Schlüsselbund (frühere Versionen)
+
+    private static func legacyQuery(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: legacyService, kSecAttrAccount as String: account]
+    }
+
+    private static func legacyExists(_ account: String) -> Bool {
+        var q = legacyQuery(account)
+        q[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        let s = SecItemCopyMatching(q as CFDictionary, nil)
+        return s == errSecSuccess || s == errSecInteractionNotAllowed
+    }
+
+    private static func legacyLoad(_ account: String) -> Data? {
+        var q = legacyQuery(account)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
         return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
     }
 
-    static func delete(account: String) { SecItemDelete(query(account) as CFDictionary) }
+    private static func deleteLegacy(_ account: String) { SecItemDelete(legacyQuery(account) as CFDictionary) }
 
-    static func exists(account: String) -> Bool {
-        var q = query(account)
-        q[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
-        return SecItemCopyMatching(q as CFDictionary, nil) != errSecItemNotFound
+    /// Ein letztes Mal: Daten aus dem Schlüsselbund holen (macOS fragt dabei evtl. noch einmal), in die neue Datei
+    /// schreiben und die Schlüsselbund-Einträge löschen. Danach gibt es keine Abfragen mehr.
+    /// Gibt eine Meldung zurück, wenn etwas übernommen wurde.
+    @discardableResult
+    static func migrateLegacyIfNeeded() -> String? {
+        guard !hasPassword || !hasTemplate, legacyExists("password") || legacyExists("template") else { return nil }
+        var v = readVault()
+        if v.password == nil, let d = legacyLoad("password"), let s = String(data: d, encoding: .utf8) { v.password = s }
+        if v.template == nil, let d = legacyLoad("template") { v.template = d }
+        guard v.password != nil || v.template != nil, writeVault(v) else { return nil }
+        deleteLegacy("password"); deleteLegacy("template")
+        return "Daten aus dem Schlüsselbund übernommen, ab jetzt keine Abfragen mehr"
     }
 
-    static var hasPassword: Bool { exists(account: "password") }
-    static var hasTemplate: Bool { exists(account: "template") }
-
-    static func savePassword(_ pw: String) -> Bool { save(Data(pw.utf8), account: "password") }
-    static func loadPassword() -> String? { load(account: "password").flatMap { String(data: $0, encoding: .utf8) } }
-    static func saveTemplate(_ t: FaceTemplate) -> Bool { t.encoded().map { save($0, account: "template") } ?? false }
-    static func loadTemplate() -> FaceTemplate? { load(account: "template").flatMap(FaceTemplate.decode) }
-
-    static func deleteAll() { delete(account: "password"); delete(account: "template") }
+    // MARK: Passwort-Prüfung
 
     /// Prüft das Passwort gegen den angemeldeten Account, damit ein Tippfehler schon beim Einrichten auffällt.
     static func verifyLoginPassword(_ pw: String) -> Bool {

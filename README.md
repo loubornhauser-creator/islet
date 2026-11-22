@@ -16,7 +16,7 @@ Eine schlanke Dynamic Island für den Mac, in nativem Swift/SwiftUI, ohne Fremdb
 
 **Kompakte Insel** zeigt live neben der Notch: Cover bei Musik, Koffein-Symbol, Timer-Restzeit, Lade-Hinweis, Termin-Countdown, neu verbundene AirPods, Mikrofon- und Kamera-Punkt
 
-**Face Unlock** (Komfort-Funktion, kein Ersatz für Face ID): Einrichtung mit Passwort-Prüfung und Einlernen aus 9 Kopfwinkeln, Gesichtserkennung nur mit Apples Vision-Framework (kein Modell, kein Download), Scan beim Aufwachen, Animation in der Notch, Passwort wird nur bei wirklich gesperrtem Bildschirm und höchstens zweimal getippt. Zuerst als Probelauf ohne Tippen. Gesicht und Passwort liegen im Schlüsselbund
+**Face Unlock** (Komfort-Funktion, kein Ersatz für Face ID): Einrichtung mit Passwort-Prüfung und Einlernen aus 9 Kopfwinkeln, Gesichtserkennung nur mit Apples Vision-Framework (kein Modell, kein Download), Scan beim Aufwachen, Animation in der Notch, Passwort wird nur bei wirklich gesperrtem Bildschirm und höchstens zweimal getippt. Zuerst als Probelauf ohne Tippen. Gesicht und Passwort liegen verschlüsselt (AES-GCM, an Mac und Benutzer gebunden) in einer Datei, ohne Schlüsselbund-Abfragen
 
 **Tastatur reinigen**: sperrt Tastatur und Trackpad, Esc 3 Sekunden halten beendet sofort
 

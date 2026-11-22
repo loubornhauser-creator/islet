@@ -136,7 +136,7 @@ final class FaceEnroller: ObservableObject {
             FaceUnlock.shared.addLog("Gesicht eingelernt (\(t.samples.count) Abdrücke)")
             step = .done
         } else {
-            cameraError = "Speichern im Schlüsselbund fehlgeschlagen."
+            cameraError = "Speichern fehlgeschlagen."
         }
     }
 }
@@ -164,7 +164,7 @@ struct FaceSetupView: View {
         VStack(spacing: 14) {
             Image(systemName: "faceid").font(.system(size: 52, weight: .light)).foregroundStyle(.green)
             Text("Face Unlock einrichten").font(.title2.bold())
-            Text("In etwa einer Minute: Du gibst einmal dein Mac-Passwort ein, Islet prüft es und legt es im Schlüsselbund ab. Danach lernt die Kamera dein Gesicht aus mehreren Kopfwinkeln.")
+            Text("In etwa einer Minute: Du gibst einmal dein Mac-Passwort ein, Islet prüft es und speichert es verschlüsselt auf diesem Mac. Danach lernt die Kamera dein Gesicht aus mehreren Kopfwinkeln.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -180,7 +180,7 @@ struct FaceSetupView: View {
         VStack(spacing: 14) {
             Image(systemName: "key.fill").font(.system(size: 36, weight: .light)).foregroundStyle(.secondary)
             Text("Dein Mac-Passwort").font(.title3.bold())
-            Text("Es wird sofort gegen deinen Account geprüft und danach nur im macOS-Schlüsselbund gespeichert, nie in einer Datei.")
+            Text("Es wird sofort gegen deinen Account geprüft und danach verschlüsselt gespeichert, gebunden an diesen Mac und deinen Benutzer. Es gibt keine Schlüsselbund-Abfragen.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             SecureField("Passwort", text: $pw).textFieldStyle(.roundedBorder).frame(width: 280).onSubmit { e.checkPassword(pw) }
             if let err = e.passwordError { Text(err).foregroundStyle(.red).font(.callout) }

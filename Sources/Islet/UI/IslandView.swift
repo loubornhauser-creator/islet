@@ -57,13 +57,13 @@ struct IslandView: View {
     @AppStorage("modCalendar") private var modCalendar = true
     @AppStorage("compactCalendar") private var cCalendar = true
 
-    @AppStorage("liveSideItems") private var liveSide = false
+    @AppStorage("liveSideItems") private var liveSide = true
     @AppStorage("animStyle") private var animStyle = "island"
 
     private var showDevice: Bool { modDevices && cDevices && devices.chip != nil }
 
     private var leadingItems: [CompactItem] {
-        guard liveSide else { return [] }   // Standard: geschlossen exakt so groß wie die Notch
+        guard liveSide else { return [] }   // aus: geschlossen immer exakt Notch-Größe
         var i: [CompactItem] = []
         if showDevice { i.append(.device) }
         if modMusic && cMusic && music.isPlaying && music.hasTrack { i.append(.music) }

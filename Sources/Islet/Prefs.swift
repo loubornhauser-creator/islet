@@ -18,7 +18,7 @@ enum Pref {
         "hoverDelay": 0.12,
         "collapseDelay": 0.28,
         "animStyle": "island",       // island | smooth | quick
-        "liveSideItems": false,      // Live-Anzeigen neben der Notch (macht die geschlossene Insel breiter)
+        "liveSideItems": true,       // Live-Anzeigen neben der Notch (Insel wird nur dann breiter, wenn etwas läuft)
         // Allgemein
         "showMenuBarIcon": true,
         "display": "notch",          // notch | main | mouse
