@@ -4,6 +4,7 @@ import AppKit
 /// Alle Einstellungen liegen in UserDefaults (SwiftUI @AppStorage liest dieselben Schlüssel).
 enum Pref {
     static let defaults: [String: Any] = [
+        "tutorialDone": false,
         // Farben & Stil
         "accentHex": "#0A84FF",
         "activeHex": "#30D158",

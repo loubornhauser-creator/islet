@@ -150,7 +150,9 @@ final class Devices: ObservableObject {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let sections = root["SPBluetoothDataType"] as? [[String: Any]],
               let list = sections.first?["device_connected"] as? [[String: Any]] else { return [] }
-        var out: [BTDevice] = []
+        // Dasselbe Gerät kann mehrfach auftauchen (z. B. klassisch und LE): nach Namen zusammenfassen und die Akkuwerte vereinen.
+        var byName: [String: BTDevice] = [:]
+        let order = ["L", "R", "C", "M"]
         for entry in list {
             for (name, value) in entry {
                 guard let info = value as? [String: Any] else { continue }
@@ -163,10 +165,18 @@ final class Devices: ObservableObject {
                 if let v = pct("device_batteryLevelCase") { bats.append(BTBattery(id: "C", label: "Hülle", percent: v)) }
                 if let v = pct("device_batteryLevelMain") { bats.append(BTBattery(id: "M", label: "Akku", percent: v)) }
                 let kind = info["device_minorType"] as? String ?? ""
-                out.append(BTDevice(name: name, kind: kind, batteries: bats, symbol: symbol(name: name, kind: kind)))
+                let new = BTDevice(name: name, kind: kind, batteries: bats, symbol: symbol(name: name, kind: kind))
+                if let old = byName[name] {
+                    var merged = old.batteries
+                    for b in new.batteries where !merged.contains(where: { $0.id == b.id }) { merged.append(b) }
+                    merged.sort { (order.firstIndex(of: $0.id) ?? 9) < (order.firstIndex(of: $1.id) ?? 9) }
+                    byName[name] = BTDevice(name: name, kind: old.kind.isEmpty ? new.kind : old.kind, batteries: merged, symbol: old.symbol)
+                } else {
+                    byName[name] = new
+                }
             }
         }
-        return out.sorted { $0.name < $1.name }
+        return byName.values.sorted { $0.name < $1.name }
     }
 
     static func symbol(name: String, kind: String) -> String {

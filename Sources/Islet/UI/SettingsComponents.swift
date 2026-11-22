@@ -71,23 +71,38 @@ struct ModuleRow: View {
 
     init(symbol: String, color: Color, title: String, subtitle: String, key: String, defaultOn: Bool = true) {
         self.symbol = symbol; self.color = color; self.title = title; self.subtitle = subtitle
+        self.key = key
         _isOn = AppStorage(wrappedValue: defaultOn, key)
     }
 
+    @State private var showInfo = false
+    private var key = ""
+    private var doc: ModuleDoc? { ModuleDocs.doc(for: key) }
+
     var body: some View {
-        Toggle(isOn: $isOn) {
-            HStack(spacing: 11) {
-                Image(systemName: symbol)
-                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(color.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 8) {
+            Toggle(isOn: $isOn) {
+                HStack(spacing: 11) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(color.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title)
+                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
+            .toggleStyle(.switch)
+            if let doc {
+                Button { showInfo.toggle() } label: {
+                    Image(systemName: "info.circle").font(.system(size: 15)).foregroundStyle(.secondary).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Beschreibung und Anleitung")
+                .popover(isPresented: $showInfo, arrowEdge: .trailing) { ModuleInfoView(doc: doc) }
+            }
         }
-        .toggleStyle(.switch)
     }
 }
 

@@ -35,6 +35,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
             return true
         }
+        if let path = value("--snapshot-tutorial") {
+            let page = Int(value("--page") ?? "0") ?? 0
+            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 520), styleMask: [.borderless], backing: .buffered, defer: false)
+            let host = NSHostingView(rootView: TutorialView(startPage: page, onFinish: {}))
+            win.contentView = host
+            win.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
+            return true
+        }
+        if let path = value("--snapshot-moduleinfo"), let doc = ModuleDocs.doc(for: value("--module") ?? "modMusic") {
+            let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
+            let host = NSHostingView(rootView: ModuleInfoView(doc: doc).background(Color(nsColor: .windowBackgroundColor)))
+            win.contentView = host
+            win.setContentSize(host.fittingSize)
+            win.orderFrontRegardless()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { Self.write(host, to: path) }
+            return true
+        }
         if let path = value("--snapshot-cleaning") {
             CleaningLock.shared.endDate = Date().addingTimeInterval(105)
             let dim = value("--dim") != nil
@@ -52,20 +70,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IslandState.shared.openImmediately()
         if let t = value("--tab"), let tab = IslandTab(rawValue: t) { IslandState.shared.tab = tab }
         if value("--clip") != nil {
-            Clipboard.shared.items = ["https://github.com/loubornhauser-creator/islet", "swift build -c release", "Termin mit Lena am Montag um 14 Uhr", "ssh deploy@server"].map { ClipItem(text: $0, date: Date().addingTimeInterval(-120)) }
+            Clipboard.shared.items = ["https://github.com/loubornhauser-creator/islet", "swift build -c release", "Termin am Montag um 14 Uhr", "ssh deploy@server"].map { ClipItem(text: $0, date: Date().addingTimeInterval(-120)) }
         }
         if value("--cal") != nil {
             let now = Date()
             CalendarModule.shared.status = .fullAccess
             CalendarModule.shared.events = [
-                CalEvent(id: "1", title: "Design-Review mit Lena", start: now.addingTimeInterval(-900), end: now.addingTimeInterval(1800), allDay: false, location: "Zoom", color: .blue),
+                CalEvent(id: "1", title: "Design-Review", start: now.addingTimeInterval(-900), end: now.addingTimeInterval(1800), allDay: false, location: "Zoom", color: .blue),
                 CalEvent(id: "2", title: "Mittagessen", start: now.addingTimeInterval(5400), end: now.addingTimeInterval(9000), allDay: false, location: "Café Aura", color: .green),
                 CalEvent(id: "3", title: "Frames: Angebot abschicken", start: now.addingTimeInterval(20000), end: now.addingTimeInterval(23000), allDay: false, location: nil, color: .orange),
                 CalEvent(id: "4", title: "Geburtstag Mama", start: now.addingTimeInterval(86400), end: now.addingTimeInterval(86400 + 3600), allDay: true, location: nil, color: .pink),
             ]
         }
         if value("--dev") != nil {
-            let airpods = BTDevice(name: "AirPods Pro von Lou", kind: "Headphones",
+            let airpods = BTDevice(name: "AirPods Pro", kind: "Headphones",
                                    batteries: [BTBattery(id: "L", label: "L", percent: 47), BTBattery(id: "R", label: "R", percent: 89), BTBattery(id: "C", label: "Hülle", percent: 51)],
                                    symbol: "airpodspro")
             Devices.shared.connected = [airpods, BTDevice(name: "Magic Mouse", kind: "Mouse", batteries: [BTBattery(id: "M", label: "Akku", percent: 72)], symbol: "magicmouse.fill")]
@@ -80,6 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 UsageWindow(title: "Woche (7 Tage)", percent: 78, resetsAt: now.addingTimeInterval(3 * 86400)),
                 UsageWindow(title: "Woche Opus", percent: 93, resetsAt: now.addingTimeInterval(3 * 86400)),
             ]
+        }
+        if value("--music") != nil {
+            Music.shared.running = true
+            Music.shared.title = "Beispiel-Titel"
+            Music.shared.artist = "Beispiel-Künstler"
+            Music.shared.isPlaying = true
+            Music.shared.duration = 215
         }
         if value("--rem") != nil {
             let now = Date()
@@ -135,6 +160,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if snapshotIfRequested() { return }
         island = IslandController()
         Hotkey.shared.onPress = { IslandState.shared.hotkeyToggle() }
+        if !Pref.bool("tutorialDone") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { TutorialWindow.show() }
+        }
         setupStatusItem()
         applyModules()
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -259,6 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Insel öffnen/schließen", action: #selector(toggleIsland), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Tastatur reinigen", action: #selector(startCleaning), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Einführung …", action: #selector(showTutorial), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Einstellungen …", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Islet beenden", action: #selector(quit), keyEquivalent: "q").target = self
@@ -269,6 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openSettings() { SettingsWindow.show() }
     @objc private func toggleIsland() { IslandState.shared.toggle() }
     @objc private func startCleaning() { CleaningLock.shared.start() }
+    @objc private func showTutorial() { TutorialWindow.show() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }

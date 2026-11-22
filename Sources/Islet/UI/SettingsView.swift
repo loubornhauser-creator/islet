@@ -658,6 +658,11 @@ struct AboutPage: View {
                 }
                 .padding(.vertical, 4)
             }
+            Section("Hilfe") {
+                Button("Einführung noch einmal ansehen") { TutorialWindow.show() }
+                Text("Zu jedem Modul gibt es unter Einstellungen → Module ein ⓘ mit Beschreibung und Anleitung.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Verbrauch jetzt") {
                 LabeledContent("Arbeitsspeicher dieser App", value: String(format: "%.0f MB", mb))
                 Text("Gemessen wie in der Aktivitätsanzeige (Speicherbedarf). Ein ausgeschaltetes Modul verbraucht nichts.")
