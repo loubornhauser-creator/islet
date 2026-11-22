@@ -170,10 +170,10 @@ struct TutorialView: View {
     private var permissions: some View {
         VStack(alignment: .leading, spacing: 15) {
             Text("Freigaben").font(.system(size: 22, weight: .bold))
-            Text("Islet fragt nur, wenn eine Funktion es braucht. Du kannst jederzeit Nein sagen, dann bleibt nur diese Funktion aus.")
+            Text("Islet fragt nie von selbst nach deinem Passwort. Nur wenn du eine Funktion einschaltest, die eine Freigabe braucht, erscheint die Abfrage, und du kannst jederzeit Nein sagen.")
                 .font(.callout).foregroundStyle(.secondary)
             TutRow(symbol: "calendar", color: .red, title: "Kalender und Erinnerungen", text: "Für den Reiter Kalender. Islet liest nur, außer wenn du eine Erinnerung abhakst.")
-            TutRow(symbol: "hand.raised.fill", color: .green, title: "Bedienungshilfen", text: "Für Lautstärke-Tasten, Trackpad-Gesten, Tastatur reinigen und das Passwort-Tippen bei Face Unlock.")
+            TutRow(symbol: "hand.raised.fill", color: .green, title: "Bedienungshilfen (optional)", text: "Nur für den Ersatz der System-Lautstärkeanzeige, Trackpad-Gesten, Tastatur reinigen und das Passwort-Tippen bei Face Unlock. Standardmäßig aus.")
             TutRow(symbol: "camera.fill", color: .gray, title: "Kamera", text: "Nur für Face Unlock und nur während eines Scans. Es werden keine Bilder gespeichert.")
             TutRow(symbol: "applescript", color: .orange, title: "Automation", text: "Für Spotify und den Dunkel/Hell-Schalter.")
             Text("Den Stand siehst du unter Einstellungen → Berechtigungen.").font(.caption).foregroundStyle(.secondary)

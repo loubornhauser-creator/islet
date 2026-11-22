@@ -23,7 +23,7 @@ macOS 14 oder neuer · Apple Silicon und Intel · 1,2 MB · kostenlos und Open S
    Alternativ im Terminal: `xattr -dr com.apple.quarantine /Applications/Islet.app`
 4. Islet startet mit einer kurzen **Einführung**. Danach sitzt die Insel an der Notch, das Symbol in der Menüleiste öffnet die Einstellungen.
 
-Islet fragt nur dann nach Freigaben (Kalender, Kamera, Bedienungshilfen, Automation), wenn du eine Funktion nutzt, die sie braucht.
+Islet fragt **nie von selbst nach deinem Mac-Passwort**. Freigaben (Kalender, Erinnerungen, Kamera, Automation, Bedienungshilfen) werden nur erfragt, wenn du eine Funktion nutzt, die sie braucht. Funktionen mit Bedienungshilfen (Tasten-Ersatz, Trackpad-Gesten) sind standardmäßig aus.
 
 ## Das kann Islet
 

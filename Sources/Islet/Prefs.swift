@@ -70,7 +70,7 @@ enum Pref {
         "modClipboard": true,
         "modIndicators": true,
         "modHUD": true,
-        "modGestures": true,
+        "modGestures": false,       // braucht Bedienungshilfen, deshalb standardmäßig aus
         "modActions": true,
         // Zwischenablage
         "clipboardMax": 10,
@@ -83,7 +83,7 @@ enum Pref {
         // HUD
         "hudSide": "right",          // left | right
         "hudSeconds": 1.6,
-        "hudReplaceSystem": true,
+        "hudReplaceSystem": false,   // braucht Bedienungshilfen (Tasten abfangen), deshalb standardmäßig aus
         // Gesten
         "gestureEdge": 0.08,
         "gestureSensitivity": 1.2,

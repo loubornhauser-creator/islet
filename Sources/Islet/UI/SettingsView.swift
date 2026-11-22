@@ -193,7 +193,7 @@ struct ModulesPage: View {
                 ModuleRow(symbol: "doc.on.clipboard.fill", color: .brown, title: "Zwischenablage", subtitle: "Verlauf der letzten Texte, nur im Arbeitsspeicher.", key: "modClipboard")
                 ModuleRow(symbol: "mic.fill", color: .red, title: "Mikrofon & Kamera", subtitle: "Orange/grüner Punkt, wenn eins benutzt wird.", key: "modIndicators")
                 ModuleRow(symbol: "speaker.wave.3.fill", color: .cyan, title: "Lautstärke & Helligkeit", subtitle: "Seiten-Bar statt System-HUD.", key: "modHUD")
-                ModuleRow(symbol: "hand.draw.fill", color: .purple, title: "Trackpad-Gesten", subtitle: "Am Rand wischen für Lautstärke/Helligkeit.", key: "modGestures")
+                ModuleRow(symbol: "hand.draw.fill", color: .purple, title: "Trackpad-Gesten", subtitle: "Am Rand wischen für Lautstärke/Helligkeit. Braucht Bedienungshilfen, standardmäßig aus.", key: "modGestures", defaultOn: false)
                 ModuleRow(symbol: "bolt.fill", color: .yellow, title: "Eigene Aktionen", subtitle: "Deine Befehle, Apps und Links als Kacheln.", key: "modActions")
             } footer: {
                 Text("Ein ausgeschaltetes Modul läuft nicht und verbraucht weder Speicher noch Rechenzeit.")
@@ -436,7 +436,8 @@ struct CalendarDevicesPage: View {
 struct VolumePage: View {
     @AppStorage("hudSide") private var side = "right"
     @AppStorage("hudSeconds") private var seconds = 1.6
-    @AppStorage("hudReplaceSystem") private var replace = true
+    @AppStorage("hudReplaceSystem") private var replace = false
+    @AppStorage("modGestures") private var gesturesOn = false
     @AppStorage("gestureEdge") private var edge = 0.08
     @AppStorage("gestureSensitivity") private var sens = 1.2
     @AppStorage("gestureLeft") private var left = "volume"
@@ -445,7 +446,7 @@ struct VolumePage: View {
 
     var body: some View {
         Form {
-            if !trusted {
+            if !trusted && (replace || gesturesOn) {
                 Section {
                     HStack {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -459,7 +460,7 @@ struct VolumePage: View {
                 Picker("Seite", selection: $side) { Text("Rechts").tag("right"); Text("Links").tag("left") }
                     .pickerStyle(.segmented)
                 SliderRow(title: "Anzeigedauer", value: $seconds, range: 0.6...5, format: { String(format: "%.1f s", $0) })
-                ToggleRow(title: "System-Anzeige ersetzen", subtitle: "Fängt die Lautstärke- und Helligkeitstasten ab (Bedienungshilfen nötig). ⇧⌥ + Taste = feine Schritte.", isOn: $replace)
+                ToggleRow(title: "System-Anzeige ersetzen", subtitle: "Fängt die Lautstärke- und Helligkeitstasten ab, damit nur die Seiten-Bar erscheint. Braucht die Bedienungshilfen-Freigabe (macOS verlangt dafür dein Passwort, einmalig). Aus: Die Bar erscheint zusätzlich zur System-Anzeige. ⇧⌥ + Taste = feine Schritte.", isOn: $replace)
             }
             Section {
                 Picker("Linker Rand", selection: $left) { gestureOptions }

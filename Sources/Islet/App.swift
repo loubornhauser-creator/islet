@@ -136,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Pref.register()
+        keepExistingBehaviourIfTrusted()
         if CommandLine.arguments.contains("--selftest") {
             print("caffeinate läuft:", Caffeine.caffeinateRunning())
             print("Helligkeit verfügbar:", Brightness.available, Brightness.current ?? -1)
@@ -168,6 +169,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.applyModules()
         }
+    }
+
+    /// Früher waren Tasten-Ersatz und Trackpad-Gesten standardmäßig an. Wer die Bedienungshilfen schon erteilt hat,
+    /// behält sie, alle anderen starten ohne jede Freigabe-Abfrage.
+    private func keepExistingBehaviourIfTrusted() {
+        guard InputTap.trusted else { return }
+        let stored = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "app.islet.mac") ?? [:]
+        for k in ["hudReplaceSystem", "modGestures"] where stored[k] == nil { UserDefaults.standard.set(true, forKey: k) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -231,22 +240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if (hud && replace) || gestures {
-            if !InputTap.shared.start() && !InputTap.trusted && shouldPromptAccessibility() {
-                InputTap.requestPermission()
-            }
+            // Nie von selbst nach der Freigabe fragen: Wer die Funktion einschaltet, bekommt in den Einstellungen einen Knopf dafür.
+            InputTap.shared.start()
         } else {
             InputTap.shared.stop()
         }
-    }
-
-    /// Die Freigabe wird nur einmal pro Programmversion angefragt. Nach einem Neubau verlangt macOS sie neu,
-    /// ohne diese Sperre würde bei jedem Start die Systemeinstellung aufgehen.
-    private func shouldPromptAccessibility() -> Bool {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: Bundle.main.executablePath ?? "")
-        let stamp = String(Int((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))
-        if UserDefaults.standard.string(forKey: "axPromptedFor") == stamp { return false }
-        UserDefaults.standard.set(stamp, forKey: "axPromptedFor")
-        return true
     }
 
     private static func handleKey(_ key: Int, _ flags: NSEvent.ModifierFlags) -> Bool {
