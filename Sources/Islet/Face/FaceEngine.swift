@@ -14,15 +14,37 @@ struct FaceFrame {
 }
 
 /// Kamera: läuft nur, solange ein Scan oder die Einrichtung aktiv ist (die grüne LED zeigt es).
+/// Die Sitzung bleibt dauerhaft vorbereitet (Eingang und Ausgang hängen schon dran), beim Scan wird nur noch
+/// `startRunning()` aufgerufen. Das spart beim Aufwachen die Konfigurationszeit.
 final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session = AVCaptureSession()
     var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Wird einmal pro Start aufgerufen, sobald das erste Bild wirklich da ist (die Kamera läuft tatsächlich).
+    var onFirstFrame: (() -> Void)?
+    /// Diagnose: Unterbrechungen und Laufzeitfehler der Kamera.
+    var onEvent: ((String) -> Void)?
     private let queue = DispatchQueue(label: "islet.face.camera", qos: .userInitiated)
+    private var configured = false
+    private var input: AVCaptureDeviceInput?
+    private var firstFrameSent = false
     private var lastFrame = Date.distantPast
     private(set) var running = false
 
-    /// Nur bis zu `maxFPS` Bilder pro Sekunde auswerten (spart Rechenzeit und Strom).
-    var maxFPS: Double = 8
+    /// Höchstens so viele Bilder pro Sekunde auswerten. Standard ohne Begrenzung: Die Auswertung bremst von selbst,
+    /// späte Bilder werden verworfen.
+    var maxFPS: Double = 60
+
+    override init() {
+        super.init()
+        let nc = NotificationCenter.default
+        nc.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { [weak self] _ in
+            self?.onEvent?("Kamera unterbrochen")
+        }
+        nc.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] n in
+            let e = (n.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.localizedDescription ?? "?"
+            self?.onEvent?("Kamera-Fehler: \(e)")
+        }
+    }
 
     static func devices() -> [AVCaptureDevice] {
         AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
@@ -36,20 +58,33 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         return all.first { $0.deviceType == .builtInWideAngleCamera } ?? all.first
     }
 
+    private func configureIfNeeded() {
+        guard !configured else { return }
+        configured = true
+        session.beginConfiguration()
+        session.sessionPreset = .vga640x480
+        let out = AVCaptureVideoDataOutput()
+        out.alwaysDiscardsLateVideoFrames = true
+        out.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        out.setSampleBufferDelegate(self, queue: queue)
+        if session.canAddOutput(out) { session.addOutput(out) }
+        session.commitConfiguration()
+    }
+
     func start(deviceID: String, completion: @escaping (Bool) -> Void) {
         queue.async { [self] in
-            guard !running, let device = Self.pickDevice(preferredID: deviceID),
-                  let input = try? AVCaptureDeviceInput(device: device) else { DispatchQueue.main.async { completion(false) }; return }
-            session.beginConfiguration()
-            session.sessionPreset = .vga640x480
-            if session.canAddInput(input) { session.addInput(input) }
-            let out = AVCaptureVideoDataOutput()
-            out.alwaysDiscardsLateVideoFrames = true
-            out.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-            out.setSampleBufferDelegate(self, queue: queue)
-            if session.canAddOutput(out) { session.addOutput(out) }
-            session.commitConfiguration()
-            session.startRunning()
+            configureIfNeeded()
+            guard let device = Self.pickDevice(preferredID: deviceID) else { DispatchQueue.main.async { completion(false) }; return }
+            if input?.device.uniqueID != device.uniqueID {
+                session.beginConfiguration()
+                if let input { session.removeInput(input) }
+                if let new = try? AVCaptureDeviceInput(device: device), session.canAddInput(new) { session.addInput(new); input = new } else { input = nil }
+                session.commitConfiguration()
+            }
+            guard input != nil else { DispatchQueue.main.async { completion(false) }; return }
+            firstFrameSent = false
+            lastFrame = .distantPast
+            if !session.isRunning { session.startRunning() }
             running = session.isRunning
             DispatchQueue.main.async { completion(self.running) }
         }
@@ -57,17 +92,19 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 
     func stop() {
         queue.async { [self] in
-            guard running else { return }
-            session.stopRunning()
-            session.inputs.forEach { session.removeInput($0) }
-            session.outputs.forEach { session.removeOutput($0) }
+            if session.isRunning { session.stopRunning() }
             running = false
         }
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pb = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        if !firstFrameSent {
+            firstFrameSent = true
+            DispatchQueue.main.async { [weak self] in self?.onFirstFrame?() }
+        }
         let now = Date()
-        guard now.timeIntervalSince(lastFrame) >= 1 / maxFPS, let pb = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard now.timeIntervalSince(lastFrame) >= 1 / maxFPS else { return }
         lastFrame = now
         onFrame?(pb)
     }
@@ -77,6 +114,19 @@ final class FaceCamera: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
 /// Zwei Merkmale zusammen: Bild-Fingerabdruck des ausgerichteten Gesichts und Proportionen aus den Gesichtspunkten.
 final class FaceAnalyzer {
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+    /// Lädt die Vision-Modelle vor, damit der erste echte Scan nicht die Ladezeit trägt.
+    func prewarm() {
+        var pb: CVPixelBuffer?
+        CVPixelBufferCreate(kCFAllocatorDefault, 320, 240, kCVPixelFormatType_32BGRA, nil, &pb)
+        if let pb { _ = try? VNImageRequestHandler(cvPixelBuffer: pb).perform([VNDetectFaceLandmarksRequest()]) }
+        let ctx = CGContext(data: nil, width: 160, height: 160, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        if let cg = ctx?.makeImage() {
+            let fp = VNGenerateImageFeaturePrintRequest()
+            _ = try? VNImageRequestHandler(cgImage: cg).perform([fp])
+        }
+    }
 
     func analyze(_ pixelBuffer: CVPixelBuffer) -> FaceFrame? {
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up)

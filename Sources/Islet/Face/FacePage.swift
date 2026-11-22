@@ -75,8 +75,11 @@ struct FacePage: View {
                 ToggleRow(title: "Über dem Sperrbildschirm anzeigen (experimentell)", subtitle: "Nutzt eine private macOS-Funktion. Ohne sie läuft die Erkennung trotzdem, nur die Animation fehlt am Sperrbildschirm.", isOn: $overlay)
             }
             if !face.log.isEmpty {
-                Section("Protokoll") {
+                Section {
                     ForEach(face.log.prefix(10), id: \.self) { Text($0).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary) }
+                    Button("Protokolldatei im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([FaceLog.url]) }
+                } header: { Text("Protokoll") } footer: {
+                    Text("Nur Ereignisse und Zeiten, keine Bilder und keine Passwörter. Hilft zu sehen, wo beim Entsperren Zeit verloren geht.")
                 }
             }
         }

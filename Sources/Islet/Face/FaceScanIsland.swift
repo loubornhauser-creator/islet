@@ -21,6 +21,7 @@ final class FaceScanIsland {
         place(p)
         p.orderFrontRegardless()
         if locked && Pref.bool("faceLockScreenOverlay") { LockScreenSpace.place(window: p) }
+        else if !locked { LockScreenSpace.remove(window: p) }
         state.kind = kind
         if !state.visible { withAnimation(IslandMotion.open) { state.visible = true } }
         switch kind {
@@ -37,7 +38,7 @@ final class FaceScanIsland {
             withAnimation(IslandMotion.close) { self?.state.visible = false }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, !self.state.visible else { return }
-                self.panel?.orderOut(nil)
+                if let p = self.panel { LockScreenSpace.remove(window: p); p.orderOut(nil) }
             }
         }
         hideWork = w

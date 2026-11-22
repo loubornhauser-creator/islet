@@ -47,7 +47,7 @@ enum Pref {
         "faceOnScreensaver": true,
         "faceOnActivity": true,
         "faceOnLock": false,
-        "faceScanSeconds": 10.0,
+        "faceScanSeconds": 6.0,
         "faceStrictness": "normal",
         "faceCamera": "auto",
         "faceShowIsland": true,

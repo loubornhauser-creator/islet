@@ -17,7 +17,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Islet"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 strip -x "$APP/Contents/MacOS/Islet" 2>/dev/null || true
-codesign --force --sign - "$APP" >/dev/null
+# Stabile Signatur, damit macOS die Freigaben (Bedienungshilfen, Kamera, Kalender) nach jedem Update behält.
+# Fehlt das lokale Zertifikat "Islet Local Signing", wird ad-hoc signiert (dann gehen die Freigaben bei jedem Build verloren).
+if security find-identity -p codesigning 2>/dev/null | grep -q "Islet Local Signing"; then
+    codesign --force --sign "Islet Local Signing" --identifier app.islet.mac "$APP" >/dev/null && echo "Signiert mit: Islet Local Signing"
+else
+    codesign --force --sign - "$APP" >/dev/null && echo "Signiert: ad-hoc (Zertifikat fehlt)"
+fi
 echo "Gebaut: $APP"
 
 if [[ "${1:-}" == "install" || "${1:-}" == "run" ]]; then

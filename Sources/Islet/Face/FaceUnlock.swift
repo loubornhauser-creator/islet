@@ -2,9 +2,82 @@ import AppKit
 import AVFoundation
 import CoreGraphics
 
+/// Protokoll für Face Unlock in einer Datei (nur Ereignisse und Zeiten, keine Bilder, keine Passwörter).
+/// So lässt sich nachvollziehen, wo am Sperrbildschirm Zeit verloren geht oder etwas scheitert.
+enum FaceLog {
+    static let url: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Islet", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("face-unlock.log")
+    }()
+    private static let queue = DispatchQueue(label: "islet.facelog", qos: .utility)
+
+    static func write(_ line: String) {
+        queue.async {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+            let text = "\(f.string(from: Date()))  \(line)\n"
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path), (attrs[.size] as? Int ?? 0) > 300_000 {
+                try? FileManager.default.removeItem(at: url)
+            }
+            if let h = try? FileHandle(forWritingTo: url) {
+                h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close()
+            } else {
+                try? text.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+}
+
+/// Tippt das Passwort wie bei bekannten Open-Source-Entsperrern: Feld leeren (⌘→, ⌘⌫), Text in kleinen Unicode-Blöcken
+/// (unabhängig vom Tastaturlayout), dann Return. Alles auf der HID-Ebene, nur so erreichen die Tasten das Passwortfeld.
+enum FaceTyping {
+    static func typeAndReturn(_ password: String) {
+        let src = CGEventSource(stateID: .hidSystemState)
+        key(0x7C, flags: .maskCommand, src)       // ⌘→ ans Ende
+        key(0x33, flags: .maskCommand, src)       // ⌘⌫ alles davor löschen
+        let units = Array(password.utf16)
+        var start = 0
+        while start < units.count {
+            var end = min(start + 20, units.count)
+            if end < units.count, (0xD800...0xDBFF).contains(units[end - 1]) { end -= 1 }   // Ersatzpaare nicht trennen
+            var chunk = Array(units[start..<end])
+            for down in [true, false] {
+                let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
+                e?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
+                e?.post(tap: .cghidEventTap)
+                Thread.sleep(forTimeInterval: 0.004)
+            }
+            start = end
+        }
+        key(0x24, flags: [], src)                 // Return
+    }
+
+    private static func key(_ code: CGKeyCode, flags: CGEventFlags, _ src: CGEventSource?) {
+        let cmd = flags.contains(.maskCommand)
+        if cmd {
+            let c = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: true); c?.flags = .maskCommand
+            c?.post(tap: .cghidEventTap); Thread.sleep(forTimeInterval: 0.012)
+        }
+        let d = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true), u = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)
+        d?.flags = flags; u?.flags = flags
+        d?.post(tap: .cghidEventTap); Thread.sleep(forTimeInterval: 0.012)
+        u?.post(tap: .cghidEventTap); Thread.sleep(forTimeInterval: 0.012)
+        if cmd {
+            let c = CGEvent(keyboardEventSource: src, virtualKey: 0x37, keyDown: false); c?.flags = []
+            c?.post(tap: .cghidEventTap); Thread.sleep(forTimeInterval: 0.012)
+        }
+    }
+
+    static func tap(_ code: CGKeyCode) {
+        let src = CGEventSource(stateID: .hidSystemState)
+        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
+    }
+}
+
 /// Face Unlock: Beim Aufwachen am Sperrbildschirm startet ein kurzer Kamera-Scan. Passt das Gesicht, tippt Islet das
 /// gespeicherte Passwort. Das ist eine Komfort-Funktion und kein Ersatz für Face ID (die Mac-Kamera hat keine Tiefen-
-/// sensorik). Sicherheitsgurte: nur bei wirklich gesperrtem Bildschirm, nie in andere Apps, höchstens zwei Versuche.
+/// sensorik). Sicherheitsgurte: nur bei wirklich gesperrtem Bildschirm, höchstens zwei Versuche.
 final class FaceUnlock: ObservableObject {
     static let shared = FaceUnlock()
 
@@ -21,22 +94,36 @@ final class FaceUnlock: ObservableObject {
     private let analyzer = FaceAnalyzer()
     private var template: FaceTemplate?
     private var password: String?
+    private var credentialsLoaded = false
     private var started = false
     private var testMode = false
     private var recent: [Bool] = []
     private var deadline: Timer?
     private var cooldownUntil = Date.distantPast
     private var typedAttempts = 0
+    private var sleeping = false
+    private var autoRetried = false
+    private var generation = 0
+    private var scanStart = Date()
+    private var gotFrame = false
+    private var wrongSince: Date?
+    private var activity: NSObjectProtocol?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var activityMonitor: Any?
     private var lastActivityScan = Date.distantPast
-    private let needed = 4
+
+    private var needed: Int {
+        switch FaceMatcher.Strictness(rawValue: Pref.string("faceStrictness")) ?? .normal { case .loose: return 2; case .normal: return 3; case .strict: return 4 }
+    }
 
     // MARK: Start/Stop
 
     func start() {
         guard !started else { return }
         started = true
+        // Ohne das drosselt macOS die App im Leerlauf (App Nap) und der Scan beim Aufwachen kommt zu spät.
+        activity = ProcessInfo.processInfo.beginActivity(options: .userInitiatedAllowingIdleSystemSleep, reason: "Face Unlock wartet auf das Aufwachen")
+        DispatchQueue.global(qos: .utility).async { [analyzer] in analyzer.prewarm() }
         reloadCredentials()
 
         let dnc = DistributedNotificationCenter.default()
@@ -44,27 +131,37 @@ final class FaceUnlock: ObservableObject {
             observers.append((center, center.addObserver(forName: name, object: nil, queue: .main) { _ in block() }))
         }
         add(dnc, .init("com.apple.screenIsLocked")) { [weak self] in
-            self?.locked = true; self?.typedAttempts = 0
-            self?.installActivityMonitor()
-            if Pref.bool("faceOnLock") { self?.scanSoon("Bildschirm gesperrt", delay: 1.0) }
+            guard let self else { return }
+            self.locked = true; self.typedAttempts = 0
+            self.installActivityMonitor()
+            self.addLog("Bildschirm gesperrt")
+            if Pref.bool("faceOnLock") && !self.sleeping { self.scanSoon("Bildschirm gesperrt", delay: 0.6) }
         }
         add(dnc, .init("com.apple.screenIsUnlocked")) { [weak self] in
-            self?.locked = false; self?.typedAttempts = 0
-            self?.removeActivityMonitor()
-            if self?.phase == .scanning || self?.phase == .typing { self?.endScan(.idle) }
+            guard let self else { return }
+            self.locked = false; self.typedAttempts = 0; self.autoRetried = false
+            self.removeActivityMonitor()
+            self.addLog("Bildschirm entsperrt")
+            if self.phase != .idle { self.endScan(.idle) }
         }
         add(dnc, .init("com.apple.screensaver.didstop")) { [weak self] in
-            if Pref.bool("faceOnScreensaver") { self?.scanSoon("Bildschirmschoner beendet", delay: 0.4) }
+            if Pref.bool("faceOnScreensaver") { self?.wake("Bildschirmschoner beendet") }
         }
         let ws = NSWorkspace.shared.notificationCenter
+        add(ws, NSWorkspace.willSleepNotification) { [weak self] in
+            self?.sleeping = true
+            self?.addLog("Mac schläft ein")
+            if self?.phase != .idle { self?.endScan(.idle) }
+        }
         add(ws, NSWorkspace.screensDidWakeNotification) { [weak self] in
-            if Pref.bool("faceOnWake") { self?.scanSoon("Bildschirm aufgewacht", delay: 0.5) }
+            if Pref.bool("faceOnWake") { self?.wake("Bildschirm aufgewacht") } else { self?.sleeping = false }
         }
         add(ws, NSWorkspace.didWakeNotification) { [weak self] in
-            if Pref.bool("faceOnWake") { self?.scanSoon("Mac aufgewacht", delay: 1.0) }
+            if Pref.bool("faceOnWake") { self?.wake("Mac aufgewacht") } else { self?.sleeping = false }
         }
         locked = Self.screenIsLocked()
         if locked { installActivityMonitor() }
+        addLog("Face Unlock bereit")
     }
 
     func stop() {
@@ -74,7 +171,8 @@ final class FaceUnlock: ObservableObject {
         observers.removeAll()
         removeActivityMonitor()
         endScan(.idle)
-        template = nil; password = nil
+        if let a = activity { ProcessInfo.processInfo.endActivity(a); activity = nil }
+        template = nil; password = nil; credentialsLoaded = false
     }
 
     /// Lädt Vorlage und Passwort in den Speicher (einmal beim Start, nicht erst am Sperrbildschirm,
@@ -84,7 +182,9 @@ final class FaceUnlock: ObservableObject {
             let t = FaceStore.loadTemplate(), p = FaceStore.loadPassword()
             DispatchQueue.main.async { [weak self] in
                 self?.template = t; self?.password = p
+                self?.credentialsLoaded = true
                 self?.enrolled = t != nil && p != nil
+                self?.addLog("Daten geladen: Gesicht \(t != nil ? "ja" : "nein"), Passwort \(p != nil ? "ja" : "nein")")
             }
         }
     }
@@ -97,26 +197,28 @@ final class FaceUnlock: ObservableObject {
 
     // MARK: Zustand des Bildschirms
 
+    /// Verbindlicher Sperrzustand vom Sitzungs-Server (nicht von einer fälschbaren Benachrichtigung).
     static func screenIsLocked() -> Bool {
         guard let d = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
-        return (d["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? (d["CGSSessionScreenIsLocked"] as? Bool) ?? false
-    }
-
-    /// Das Passwort darf nur getippt werden, wenn der Sperrbildschirm wirklich vorne liegt, nie in eine normale App.
-    private static func lockScreenIsFront() -> Bool {
-        guard screenIsLocked() else { return false }
-        let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        return id == nil || id == "com.apple.loginwindow" || id == "com.apple.ScreenSaver.Engine"
+        return (d["CGSSessionScreenIsLocked"] as? Bool) ?? (d["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
     }
 
     // MARK: Auslöser
 
+    private func wake(_ reason: String) {
+        sleeping = false
+        autoRetried = false
+        addLog("\(reason)")
+        DispatchQueue.global(qos: .utility).async { [analyzer] in analyzer.prewarm() }
+        scanSoon(reason, delay: 0.12)
+    }
+
     private func installActivityMonitor() {
         guard activityMonitor == nil, Pref.bool("faceOnActivity") else { return }
-        activityMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .keyDown, .scrollWheel, .leftMouseDown]) { [weak self] _ in
-            guard let self, Date().timeIntervalSince(self.lastActivityScan) > 3 else { return }
+        activityMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .scrollWheel, .leftMouseDown]) { [weak self] _ in
+            guard let self, self.phase == .idle, Date().timeIntervalSince(self.lastActivityScan) > 4 else { return }
             self.lastActivityScan = Date()
-            self.scanSoon("Maus oder Tastatur bewegt", delay: 0.1)
+            self.scanSoon("Maus bewegt", delay: 0)
         }
     }
 
@@ -124,11 +226,10 @@ final class FaceUnlock: ObservableObject {
         if let m = activityMonitor { NSEvent.removeMonitor(m); activityMonitor = nil }
     }
 
-    /// Wartet kurz, bis macOS den Sperrbildschirm wirklich zeigt, und startet dann den Scan.
     private func scanSoon(_ reason: String, delay: TimeInterval) {
         guard started, Pref.bool("modFace") else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.beginScan(reason: reason, attemptsLeft: 4)
+            self?.beginScan(reason: reason, attemptsLeft: 8)
         }
     }
 
@@ -140,46 +241,72 @@ final class FaceUnlock: ObservableObject {
         beginScan(reason: "Test", attemptsLeft: 0)
     }
 
+    private var isFailed: Bool { if case .failed = phase { return true }; return false }
+
     private func beginScan(reason: String, attemptsLeft: Int) {
-        guard started || testMode, phase == .idle || phase == .rejected || isFailed else { return }
+        guard started || testMode, !sleeping || testMode, phase == .idle || phase == .rejected || isFailed else { return }
         guard Date() > cooldownUntil else { return }
+        // Der Sperrzustand kann gleich nach dem Aufwachen noch kurz hinterherhinken: schnell nachprüfen, nicht lange warten.
         if !testMode && !Self.screenIsLocked() {
             if attemptsLeft > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.beginScan(reason: reason, attemptsLeft: attemptsLeft - 1) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in self?.beginScan(reason: reason, attemptsLeft: attemptsLeft - 1) }
+            } else {
+                addLog("Kein Scan: Bildschirm nicht gesperrt (\(reason))")
             }
+            return
+        }
+        guard credentialsLoaded else {
+            if attemptsLeft > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in self?.beginScan(reason: reason, attemptsLeft: attemptsLeft - 1) } }
             return
         }
         guard let template else { fail("Noch kein Gesicht eingelernt"); return }
         guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { fail("Kamera-Zugriff fehlt"); return }
 
-        addLog("Scan gestartet (\(reason))")
+        generation += 1
+        let gen = generation
+        scanStart = Date(); gotFrame = false; wrongSince = nil
         phase = .scanning; score = 0; recent = []
-        FaceScanIsland.shared.show(.searching, locked: Self.screenIsLocked())
+        addLog("Scan gestartet (\(reason))")
         let strictness = FaceMatcher.Strictness(rawValue: Pref.string("faceStrictness")) ?? .normal
+
+        camera.onEvent = { [weak self] m in DispatchQueue.main.async { self?.addLog(m) } }
+        // Die Animation startet erst, wenn die Kamera wirklich Bilder liefert.
+        camera.onFirstFrame = { [weak self] in
+            guard let self, self.generation == gen, self.phase == .scanning else { return }
+            self.gotFrame = true
+            self.addLog("Kamera läuft")
+            FaceScanIsland.shared.show(.searching, locked: Self.screenIsLocked())
+        }
         camera.onFrame = { [weak self] pb in
             guard let self else { return }
-            var ok = false, s: Float = 0
-            if let f = self.analyzer.analyze(pb) { (ok, s) = FaceMatcher.matches(f, template: template, strictness: strictness) }
-            DispatchQueue.main.async { self.consume(ok: ok, score: s) }
+            var hasFace = false, ok = false, s: Float = 0
+            if let f = self.analyzer.analyze(pb) { hasFace = true; (ok, s) = FaceMatcher.matches(f, template: template, strictness: strictness) }
+            DispatchQueue.main.async { self.consume(gen, hasFace: hasFace, ok: ok, score: s) }
         }
         camera.start(deviceID: Pref.string("faceCamera")) { [weak self] ok in
-            if !ok { self?.fail("Kamera nicht verfügbar") }
+            guard let self, self.generation == gen else { return }
+            if ok { self.addLog("Kamera gestartet") } else { self.fail("Kamera nicht verfügbar") }
         }
         deadline?.invalidate()
         deadline = Timer.scheduledTimer(withTimeInterval: max(3, Pref.double("faceScanSeconds")), repeats: false) { [weak self] _ in
-            guard self?.phase == .scanning else { return }
-            self?.endScan(.rejected)
-            self?.addLog("Gesicht nicht erkannt (Zeit abgelaufen)")
+            guard let self, self.generation == gen, self.phase == .scanning else { return }
+            if !self.gotFrame { self.fail("Die Kamera liefert keine Bilder") }
+            else { self.addLog("Gesicht nicht erkannt (Zeit abgelaufen)"); self.endScan(.rejected) }
         }
     }
 
-    private var isFailed: Bool { if case .failed = phase { return true }; return false }
+    private func ms() -> String { "+\(Int(Date().timeIntervalSince(scanStart) * 1000)) ms" }
 
-    private func consume(ok: Bool, score s: Float) {
-        guard phase == .scanning else { return }
+    private func consume(_ gen: Int, hasFace: Bool, ok: Bool, score s: Float) {
+        guard gen == generation, phase == .scanning else { return }
         score = s
-        recent.append(ok)
-        if recent.count > 8 { recent.removeFirst() }
+        if ok { wrongSince = nil }
+        else if hasFace {
+            // Eine Weile Nicht-Treffer ist normal (man schaut noch weg). Erst nach 2 Sekunden am Stück gilt es als falsches Gesicht.
+            if let w = wrongSince { if Date().timeIntervalSince(w) >= 2 { addLog("Falsches Gesicht (2 s ohne Treffer) \(ms())"); endScan(.rejected); return } }
+            else { wrongSince = Date() }
+        } else { wrongSince = nil }
+        if hasFace { recent.append(ok); if recent.count > 5 { recent.removeFirst() } }
         if recent.filter({ $0 }).count >= needed { recognized() }
     }
 
@@ -187,36 +314,47 @@ final class FaceUnlock: ObservableObject {
         camera.stop()
         deadline?.invalidate()
         phase = .recognized
-        addLog("Gesicht erkannt")
+        addLog("Gesicht erkannt \(ms())")
         let willType = Pref.bool("faceTypePassword") && !testMode
         FaceScanIsland.shared.show(willType ? .recognized : .recognizedDry, locked: Self.screenIsLocked())
         if willType {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.typePassword() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.typePassword() }
         } else {
             addLog(testMode ? "Test: nichts getippt" : "Probelauf: Passwort nicht getippt")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in self?.endScan(.idle) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.endScan(.idle) }
         }
     }
 
     private func fail(_ message: String) {
         addLog("Fehler: \(message)")
+        generation += 1
         camera.stop(); deadline?.invalidate()
         phase = .failed(message)
         FaceScanIsland.shared.show(.error(message), locked: Self.screenIsLocked())
-        cooldownUntil = Date().addingTimeInterval(3)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { [weak self] in self?.endScan(.idle) }
+        cooldownUntil = Date().addingTimeInterval(2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in self?.endScan(.idle) }
     }
 
     func endScan(_ final: Phase) {
+        generation += 1
         camera.stop(); deadline?.invalidate(); deadline = nil
-        camera.onFrame = nil
+        camera.onFrame = nil; camera.onFirstFrame = nil
+        let wasTest = testMode
         testMode = false
         if final == .rejected {
             phase = .rejected
-            cooldownUntil = Date().addingTimeInterval(3)
+            cooldownUntil = Date().addingTimeInterval(0.8)
             FaceScanIsland.shared.show(.denied, locked: Self.screenIsLocked())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
                 if self?.phase == .rejected { self?.phase = .idle }
+            }
+            // Einmal automatisch erneut versuchen, falls man beim Aufwachen noch weggeschaut hat.
+            if !autoRetried && !wasTest && Self.screenIsLocked() {
+                autoRetried = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self, Self.screenIsLocked() else { return }
+                    self.beginScan(reason: "Wiederholung", attemptsLeft: 0)
+                }
             }
         } else {
             phase = .idle
@@ -228,53 +366,27 @@ final class FaceUnlock: ObservableObject {
 
     private func typePassword() {
         guard let pw = password, !pw.isEmpty else { fail("Kein Passwort gespeichert"); return }
-        guard InputTap.trusted else { fail("Bedienungshilfen fehlen"); return }
+        guard InputTap.trusted else { fail("Bedienungshilfen fehlen: Islet in der Liste entfernen und neu hinzufügen"); return }
         guard typedAttempts < 2 else { fail("Zwei Versuche gescheitert: bitte einmal von Hand entsperren"); return }
-        guard Self.lockScreenIsFront() else { fail("Sperrbildschirm nicht erkannt, nichts getippt"); return }
+        guard Self.screenIsLocked() else { fail("Bildschirm ist nicht gesperrt, nichts getippt"); return }
         typedAttempts += 1
         phase = .typing
         FaceScanIsland.shared.show(.unlocking, locked: true)
-        addLog("Passwort wird getippt (Versuch \(typedAttempts))")
+        addLog("Passwort wird getippt (Versuch \(typedAttempts)) \(ms())")
 
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            Self.postKey(0x38)                       // Shift: Display sicher wach und Feld bereit
-            usleep(350_000)
-            guard Self.lockScreenIsFront() else {    // zweite Prüfung direkt vor dem Tippen
+            FaceTyping.tap(0x38)                     // Shift: Display sicher wach und Feld bereit
+            Thread.sleep(forTimeInterval: 0.12)
+            guard Self.screenIsLocked() else {       // zweite Prüfung direkt vor dem Tippen
                 DispatchQueue.main.async { self?.fail("Sperrbildschirm weg, abgebrochen") }
                 return
             }
-            for _ in 0..<48 { Self.postKey(0x33) }   // Feld leeren
-            for ch in pw { Self.postCharacter(ch); usleep(7_000) }
-            usleep(150_000)
-            Self.postKey(0x24)                       // Return
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            FaceTyping.typeAndReturn(pw)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 guard let self else { return }
-                if Self.screenIsLocked() {
-                    self.fail("Passwort wurde nicht angenommen")
-                } else {
-                    self.addLog("Entsperrt")
-                    self.endScan(.idle)
-                }
+                if Self.screenIsLocked() { self.fail("Passwort wurde nicht angenommen") }
+                else { self.addLog("Entsperrt \(self.ms())"); self.endScan(.idle) }
             }
-        }
-    }
-
-    private static func postKey(_ code: CGKeyCode) {
-        let src = CGEventSource(stateID: .hidSystemState)
-        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)?.post(tap: .cghidEventTap)
-        CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)?.post(tap: .cghidEventTap)
-        usleep(4_000)
-    }
-
-    /// Tippt ein Zeichen über seinen Unicode-Wert, unabhängig vom Tastaturlayout.
-    private static func postCharacter(_ ch: Character) {
-        let src = CGEventSource(stateID: .hidSystemState)
-        var u = Array(String(ch).utf16)
-        for down in [true, false] {
-            let e = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: down)
-            e?.flags = []
-            e?.keyboardSetUnicodeString(stringLength: u.count, unicodeString: &u)
-            e?.post(tap: .cghidEventTap)
         }
     }
 
@@ -284,5 +396,6 @@ final class FaceUnlock: ObservableObject {
         let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
         log.insert("\(f.string(from: Date()))  \(line)", at: 0)
         if log.count > 40 { log.removeLast(log.count - 40) }
+        FaceLog.write(line)
     }
 }
