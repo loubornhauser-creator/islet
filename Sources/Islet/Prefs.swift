@@ -8,12 +8,12 @@ enum Pref {
         "accentHex": "#0A84FF",
         "activeHex": "#30D158",
         "tintHex": "#000000",
-        "style": "glass",            // glass | solid
+        "style": "solid",            // solid (schwarz) | glass
         "glassStrength": 0.55,
         // Größe
-        "cornerRadius": 30.0,
-        "expandedWidth": 620.0,
-        "expandedHeight": 214.0,
+        "cornerRadius": 34.0,
+        "expandedWidth": 540.0,
+        "expandedHeight": 188.0,
         "hoverExpand": true,
         "hoverDelay": 0.12,
         // Module

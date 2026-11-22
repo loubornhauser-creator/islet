@@ -54,11 +54,11 @@ struct AppearanceTab: View {
     @AppStorage("accentHex") private var accent = "#0A84FF"
     @AppStorage("activeHex") private var active = "#30D158"
     @AppStorage("tintHex") private var tint = "#000000"
-    @AppStorage("style") private var style = "glass"
+    @AppStorage("style") private var style = "solid"
     @AppStorage("glassStrength") private var strength = 0.55
-    @AppStorage("cornerRadius") private var corner = 30.0
-    @AppStorage("expandedWidth") private var width = 620.0
-    @AppStorage("expandedHeight") private var height = 214.0
+    @AppStorage("cornerRadius") private var corner = 34.0
+    @AppStorage("expandedWidth") private var width = 540.0
+    @AppStorage("expandedHeight") private var height = 188.0
     @AppStorage("hoverExpand") private var hover = true
     @AppStorage("hoverDelay") private var delay = 0.12
 
@@ -69,8 +69,8 @@ struct AppearanceTab: View {
                 ColorPicker("Aktiv (Koffein an, Akku)", selection: colorBinding($active), supportsOpacity: false)
                 ColorPicker("Insel-Grundfarbe", selection: colorBinding($tint), supportsOpacity: false)
                 Picker("Stil", selection: $style) {
+                    Text("Schwarz (wie iPhone)").tag("solid")
                     Text("Liquid Glass").tag("glass")
-                    Text("Vollfläche").tag("solid")
                 }
                 if style == "glass" {
                     LabeledContent("Tönung") { Slider(value: $strength, in: 0...1).frame(width: 200) }

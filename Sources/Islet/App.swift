@@ -15,7 +15,6 @@ struct IsletMain {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var island: IslandController?
     private var statusItem: NSStatusItem?
-    private var settingsWindow: NSWindow?
     private var applied: [String: Bool] = [:]
 
     /// `Islet --snapshot out.png` rendert das ausgeklappte Panel in eine Datei (für Tests).
@@ -26,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IslandGeometry.shared.notchWidth = 200
         IslandGeometry.shared.notchHeight = 34
         IslandState.shared.expanded = true
+        if let t = args.firstIndex(of: "--tab"), t + 1 < args.count, let tab = IslandTab(rawValue: args[t + 1]) { IslandState.shared.tab = tab }
         let w = Pref.double("expandedWidth"), h = Pref.double("expandedHeight")
         let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: w + 40, height: h + 20),
                            styleMask: [.borderless], backing: .buffered, defer: false)
@@ -49,6 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             print("caffeinate läuft:", Caffeine.caffeinateRunning())
             print("Helligkeit verfügbar:", Brightness.available, Brightness.current ?? -1)
             AudioControl.shared.start()
+            print("Ausgabegerät:", AudioControl.shared.outputName, "->", AudioControl.shared.outputSymbol ?? "Lautsprecher (Pegel-Symbol)")
+            for (n, t, d) in [("Lou\u{2019}s AirPods Pro", "blue", ""), ("AirPods Max", "blue", ""), ("AirPods (3rd generation)", "blue", ""),
+                              ("WH-1000XM5 Headset", "blue", ""), ("JBL Flip 6", "blue", ""), ("DELL U2723QE", "dprt", ""),
+                              ("MacBook Pro Speakers", "bltn", "ispk"), ("External Headphones", "bltn", "hdpn")] {
+                let f: (String) -> UInt32 = { $0.utf8.reduce(0) { ($0 << 8) | UInt32($1) } }
+                print("  Test:", n, "->", AudioControl.symbol(name: n, transport: f(t), source: d.isEmpty ? 0 : f(d)) ?? "Lautsprecher")
+            }
             print("Lautstärke:", AudioControl.shared.volume, "stumm:", AudioControl.shared.muted)
             print("Bedienungshilfen erlaubt:", InputTap.trusted)
             print("Gesten-Start möglich:", Gestures.shared.start()); Gestures.shared.stop()
@@ -168,19 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    @objc private func openSettings() {
-        if settingsWindow == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 544, height: 484),
-                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            w.title = "Islet"
-            w.isReleasedWhenClosed = false
-            w.contentView = NSHostingView(rootView: SettingsView())
-            w.center()
-            settingsWindow = w
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
-    }
+    @objc private func openSettings() { SettingsWindow.show() }
 
     @objc private func quit() { NSApp.terminate(nil) }
 }

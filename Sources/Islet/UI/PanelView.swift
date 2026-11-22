@@ -1,54 +1,150 @@
 import SwiftUI
 
-/// Ausgeklapptes Panel: links Musik, rechts ein Raster aus Kacheln. Jedes Modul ist abschaltbar.
+/// Geöffnete Insel: oben eine Leiste (links Ansichten, rechts Zahnrad, dazwischen die Notch),
+/// darunter die gewählte Ansicht. Schwarz, ruhig, wie die Dynamic Island auf dem iPhone.
 struct PanelView: View {
+    @ObservedObject private var state = IslandState.shared
+    @ObservedObject private var geo = IslandGeometry.shared
+    @ObservedObject private var battery = Battery.shared
     @AppStorage("modMusic") private var modMusic = true
     @AppStorage("modTimer") private var modTimer = true
     @AppStorage("modCaffeine") private var modCaffeine = true
     @AppStorage("modBattery") private var modBattery = true
     @AppStorage("modStats") private var modStats = true
     @AppStorage("modActions") private var modActions = true
-    @AppStorage("actionsJSON") private var actionsJSON = "[]"
+    @Namespace private var tabSpace
+
+    private var tabs: [IslandTab] {
+        var t: [IslandTab] = []
+        if modMusic { t.append(.music) }
+        if modCaffeine || modTimer || modStats || (modBattery && battery.hasBattery) { t.append(.overview) }
+        if modActions { t.append(.actions) }
+        return t
+    }
+
+    private var current: IslandTab? { tabs.contains(state.tab) ? state.tab : tabs.first }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Group {
+                switch current {
+                case .music: MusicView()
+                case .overview: OverviewView()
+                case .actions: ActionsView()
+                case nil: Text("Alle Module sind aus.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .id(current)
+            .transition(.opacity.combined(with: .scale(scale: 0.97)))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 18)
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.86), value: current)
+    }
+
+    /// Leiste auf Höhe der Notch: Ansichten links, Zahnrad rechts, Lücke für die Notch in der Mitte.
+    private var header: some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(tabs) { tab in
+                    Button { state.tab = tab } label: {
+                        Image(systemName: tab.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 34, height: 24)
+                            .foregroundStyle(current == tab ? .white : .white.opacity(0.45))
+                            .background {
+                                if current == tab {
+                                    Capsule().fill(.white.opacity(0.16)).matchedGeometryEffect(id: "tab", in: tabSpace)
+                                }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help(tab.title)
+                }
+            }
+            Spacer(minLength: geo.notchWidth > 0 ? geo.notchWidth + 24 : 8)
+            Button { SettingsWindow.show() } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 34, height: 24)
+                    .foregroundStyle(.white.opacity(0.45))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Einstellungen öffnen")
+        }
+        .padding(.horizontal, 20)
+        .frame(height: max(geo.notchHeight, 30))
+    }
+}
+
+/// Übersicht: Koffein, Timer, Akku und Stats in einer ruhigen Reihe.
+struct OverviewView: View {
+    @AppStorage("modTimer") private var modTimer = true
+    @AppStorage("modCaffeine") private var modCaffeine = true
+    @AppStorage("modBattery") private var modBattery = true
+    @AppStorage("modStats") private var modStats = true
     @ObservedObject private var battery = Battery.shared
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if modCaffeine { CaffeineTile() }
+            if modTimer { TimerTile() }
+            if modBattery && battery.hasBattery { BatteryTile() }
+            if modStats { StatsTile() }
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+/// Eigene Aktionen als Kacheln.
+struct ActionsView: View {
+    @AppStorage("actionsJSON") private var actionsJSON = "[]"
 
     private var actions: [ActionItem] {
         (try? JSONDecoder().decode([ActionItem].self, from: Data(actionsJSON.utf8))) ?? []
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if modMusic { MusicTile().frame(width: 292) }
-            let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-            LazyVGrid(columns: cols, spacing: 10) {
-                if modCaffeine { CaffeineTile() }
-                if modTimer { TimerTile() }
-                if modBattery && battery.hasBattery { BatteryTile() }
-                if modStats { StatsTile() }
-                if modActions { ForEach(actions) { ActionTile(item: $0) } }
+        if actions.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "bolt").font(.system(size: 24, weight: .light))
+                Text("Noch keine Aktionen").font(.system(size: 12, weight: .medium)).opacity(0.7)
+                Button("Aktion anlegen") { SettingsWindow.show() }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 5).background(.white.opacity(0.14), in: Capsule())
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 10) {
+                    ForEach(actions) { ActionTile(item: $0) }
+                }
+            }
         }
-        .padding(.top, IslandGeometry.shared.notchHeight > 0 ? 14 : 12)
-        .padding([.horizontal, .bottom], 14)
     }
 }
 
-/// Basis jeder Kachel: quadratisch, Glas, optional farbig getönt.
+/// Basis jeder Kachel: flach, dunkelgrau, optional farbig.
 struct Tile<Content: View>: View {
     var tint: Color? = nil
     var action: (() -> Void)? = nil
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
         Button(action: { action?() }) {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(8)
         }
         .buttonStyle(TilePressStyle())
-        .frame(height: 84)
-        .modifier(GlassBackground(shape: shape, strength: tint == nil ? 0.15 : 0.7, tint: tint ?? .white, interactive: true))
+        .frame(height: 92)
+        .background(tint.map { AnyShapeStyle($0.opacity(0.92)) } ?? AnyShapeStyle(Color.white.opacity(0.10)), in: shape)
         .clipShape(shape)
     }
 }
@@ -195,80 +291,70 @@ struct ActionTile: View {
 
 // MARK: Musik
 
-struct MusicTile: View {
+/// Musik wie die Live Activity auf dem iPhone: Cover links, Titel, Fortschritt, Tasten.
+struct MusicView: View {
     @ObservedObject private var music = Music.shared
-    @ObservedObject private var audio = AudioControl.shared
     @AppStorage("accentHex") private var accentHex = "#0A84FF"
     @State private var scrub: Double? = nil
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
             if music.running && music.hasTrack {
-                HStack(spacing: 11) {
+                HStack(spacing: 18) {
                     Group {
                         if let art = music.artwork { Image(nsImage: art).resizable().scaledToFill() }
-                        else { Image(systemName: "music.note").font(.title2).frame(maxWidth: .infinity, maxHeight: .infinity).background(.white.opacity(0.12)) }
+                        else { Image(systemName: "music.note").font(.system(size: 28, weight: .light)).frame(maxWidth: .infinity, maxHeight: .infinity).background(.white.opacity(0.10)) }
                     }
-                    .frame(width: 62, height: 62)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(music.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                        Text(music.artist).font(.system(size: 12)).opacity(0.7).lineLimit(1)
+                    .frame(width: 100, height: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .shadow(color: .black.opacity(0.5), radius: 8, y: 3)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(music.title).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                        Text(music.artist).font(.system(size: 13)).opacity(0.6).lineLimit(1).padding(.top, 2)
+                        Spacer(minLength: 6)
+                        progress
+                        controls.padding(.top, 8)
                     }
-                    Spacer(minLength: 0)
+                    .frame(height: 100)
                 }
-                progress
-                controls
             } else {
-                Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "music.note").font(.system(size: 26, weight: .light))
-                    Text(music.running ? "Nichts spielt" : "Spotify ist nicht geöffnet").font(.system(size: 12, weight: .medium)).opacity(0.75)
-                    if !music.running { Button("Spotify öffnen") { music.open() }.buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: accentHex)) }
+                    Text(music.running ? "Nichts spielt" : "Spotify ist nicht geöffnet").font(.system(size: 12, weight: .medium)).opacity(0.7)
+                    if !music.running {
+                        Button("Spotify öffnen") { music.open() }
+                            .buttonStyle(.plain).font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 12).padding(.vertical, 5).background(.white.opacity(0.14), in: Capsule())
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                Spacer()
             }
-            volume
         }
         .foregroundStyle(.white)
-        .padding(12)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .modifier(GlassBackground(shape: shape, strength: 0.15, tint: .white))
-        .clipShape(shape)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var progress: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             let dur = max(1, music.duration)
             let pos = scrub ?? (music.position / dur)
-            HStack(spacing: 6) {
-                Text(fmt(pos * dur)).font(.system(size: 9)).monospacedDigit().opacity(0.7)
+            HStack(spacing: 7) {
+                Text(fmt(pos * dur)).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 32, alignment: .leading)
                 GlassSlider(value: Binding(get: { pos }, set: { scrub = $0 }), tint: .white,
                             onCommit: { v in music.seek(to: v * dur); scrub = nil })
-                Text(fmt(dur)).font(.system(size: 9)).monospacedDigit().opacity(0.7)
+                Text("-" + fmt(max(0, dur - pos * dur))).font(.system(size: 10)).monospacedDigit().opacity(0.55).frame(width: 36, alignment: .trailing)
             }
         }
     }
 
     private var controls: some View {
-        HStack(spacing: 26) {
-            Spacer()
-            Button { music.previous() } label: { Image(systemName: "backward.fill") }
-            Button { music.playPause() } label: { Image(systemName: music.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 20)) }
-            Button { music.next() } label: { Image(systemName: "forward.fill") }
-            Spacer()
+        HStack(spacing: 34) {
+            Button { music.previous() } label: { Image(systemName: "backward.fill").font(.system(size: 17)) }
+            Button { music.playPause() } label: { Image(systemName: music.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 22)).frame(width: 26) }
+            Button { music.next() } label: { Image(systemName: "forward.fill").font(.system(size: 17)) }
         }
-        .buttonStyle(.plain).font(.system(size: 16))
-    }
-
-    private var volume: some View {
-        HStack(spacing: 7) {
-            Image(systemName: audio.muted || audio.volume == 0 ? "speaker.slash.fill" : "speaker.fill").font(.system(size: 10)).opacity(0.7).frame(width: 14)
-            GlassSlider(value: Binding(get: { Double(audio.volume) }, set: { audio.setVolume(Float($0)) }), tint: Color(hex: accentHex))
-            Image(systemName: "speaker.wave.3.fill").font(.system(size: 10)).opacity(0.7)
-        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
     private func fmt(_ s: Double) -> String {

@@ -110,6 +110,7 @@ final class HUDController {
 
 struct HUDView: View {
     @ObservedObject var state: HUDState
+    @ObservedObject private var audio = AudioControl.shared
     @AppStorage("accentHex") private var accentHex = "#0A84FF"
 
     @State private var stretch: CGFloat = 0
@@ -125,6 +126,7 @@ struct HUDView: View {
         case .brightness:
             return "sun.max.fill"
         case .volume:
+            if let device = audio.outputSymbol { return device }   // AirPods, Kopfhörer, Lautsprecher, Monitor …
             if level < 0.01 { return "speaker.slash.fill" }
             if level < 0.33 { return "speaker.wave.1.fill" }
             return level < 0.66 ? "speaker.wave.2.fill" : "speaker.wave.3.fill"

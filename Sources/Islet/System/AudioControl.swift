@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import AppKit
 
 /// Systemlautstärke über CoreAudio, ereignisgesteuert (Listener statt Polling).
 final class AudioControl: ObservableObject {
@@ -7,8 +8,13 @@ final class AudioControl: ObservableObject {
 
     @Published var volume: Float = 0
     @Published var muted = false
+    /// SF-Symbol des aktuellen Ausgabegeräts (AirPods, Kopfhörer, Lautsprecher, Monitor …).
+    /// `nil` = normale Mac-Lautsprecher, dann zeigt die Anzeige das Pegel-Symbol.
+    @Published var outputSymbol: String? = nil
+    @Published var outputName = ""
     var onExternalChange: (() -> Void)?
 
+    fileprivate var deviceID: AudioDeviceID { device }
     private var device = AudioDeviceID(kAudioObjectUnknown)
     private var deviceBlocks: [(AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
     private var systemBlock: AudioObjectPropertyListenerBlock?
@@ -59,7 +65,7 @@ final class AudioControl: ObservableObject {
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id) == noErr else { return }
         device = id
         readState()
-        for sel in [Self.virtualMainVolume, kAudioDevicePropertyMute] {
+        for sel in [Self.virtualMainVolume, kAudioDevicePropertyMute, kAudioDevicePropertyDataSource] {
             var a = Self.address(sel)
             let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
                 guard let self else { return }
@@ -73,6 +79,7 @@ final class AudioControl: ObservableObject {
     }
 
     private func readState() {
+        readOutputKind()
         var v = Float32(0)
         var size = UInt32(MemoryLayout<Float32>.size)
         var a = Self.address(Self.virtualMainVolume)
@@ -103,4 +110,67 @@ final class AudioControl: ObservableObject {
     }
 
     func toggleMute() { setMute(!muted) }
+}
+
+// MARK: Ausgabegerät erkennen
+
+extension AudioControl {
+    private static func fourCC(_ s: String) -> UInt32 {
+        s.utf8.reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+
+    fileprivate func readOutputKind() {
+        var nameRef: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var na = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName,
+                                            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var name = ""
+        if AudioObjectGetPropertyData(deviceID, &na, 0, nil, &size, &nameRef) == noErr, let r = nameRef {
+            name = r.takeRetainedValue() as String
+        }
+        func u32(_ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope) -> UInt32 {
+            var v = UInt32(0)
+            var sz = UInt32(MemoryLayout<UInt32>.size)
+            var a = AudioObjectPropertyAddress(mSelector: sel, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+            return AudioObjectGetPropertyData(deviceID, &a, 0, nil, &sz, &v) == noErr ? v : 0
+        }
+        let transport = u32(kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal)
+        let source = u32(kAudioDevicePropertyDataSource, kAudioObjectPropertyScopeOutput)
+        outputName = name
+        outputSymbol = Self.symbol(name: name, transport: transport, source: source)
+    }
+
+    /// Wählt das passende Symbol anhand von Gerätename, Anschlussart und Datenquelle.
+    static func symbol(name: String, transport: UInt32, source: UInt32) -> String? {
+        let n = name.lowercased()
+        let has: ([String]) -> Bool = { $0.contains { n.contains($0) } }
+        let bluetooth = transport == fourCC("blue") || transport == fourCC("blea")
+
+        var candidate: String?
+        if n.contains("airpods") {
+            if n.contains("max") { candidate = "airpodsmax" }
+            else if n.contains("pro") { candidate = "airpodspro" }
+            else if has(["4th", "gen4", "gen 4", "4. gen"]) { candidate = "airpods.gen4" }
+            else if has(["3rd", "gen3", "gen 3", "3. gen"]) { candidate = "airpods.gen3" }
+            else { candidate = "airpods" }
+        } else if n.contains("homepod") {
+            candidate = n.contains("mini") ? "homepodmini.fill" : "homepod.fill"
+        } else if has(["beats"]) {
+            candidate = "beats.headphones"
+        } else if transport == fourCC("airp") {
+            candidate = "airplayaudio"
+        } else if transport == fourCC("hdmi") || transport == fourCC("dprt") {
+            candidate = "display"
+        } else if transport == fourCC("bltn") {
+            candidate = source == fourCC("hdpn") ? "headphones" : nil   // Kopfhörerbuchse
+        } else if has(["headphone", "headset", "kopfh", "earbuds", "buds", "earphone"]) {
+            candidate = "headphones"
+        } else if has(["speaker", "lautsprecher", "soundbar", "boom", "jbl", "sonos", "echo", "bose"]) {
+            candidate = "hifispeaker.fill"
+        } else if bluetooth {
+            candidate = "headphones"     // unbekanntes Bluetooth-Audio: meist Kopfhörer
+        }
+        guard let c = candidate else { return nil }
+        return NSImage(systemSymbolName: c, accessibilityDescription: nil) != nil ? c : "headphones"
+    }
 }

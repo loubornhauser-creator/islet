@@ -23,10 +23,31 @@ final class IslandGeometry: ObservableObject {
     }
 }
 
+/// Ansichten der geöffneten Insel (Leiste oben, wie bei Atoll).
+enum IslandTab: String, CaseIterable, Identifiable {
+    case music, overview, actions
+    var id: String { rawValue }
+    var symbol: String {
+        switch self {
+        case .music: return "music.note"
+        case .overview: return "square.grid.2x2.fill"
+        case .actions: return "bolt.fill"
+        }
+    }
+    var title: String {
+        switch self {
+        case .music: return "Musik"
+        case .overview: return "Übersicht"
+        case .actions: return "Aktionen"
+        }
+    }
+}
+
 final class IslandState: ObservableObject {
     static let shared = IslandState()
 
     @Published var expanded = false
+    @Published var tab: IslandTab = .music
     private var pinned = false
     private var work: DispatchWorkItem?
 

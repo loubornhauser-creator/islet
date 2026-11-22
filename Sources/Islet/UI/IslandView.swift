@@ -8,10 +8,10 @@ struct IslandView: View {
     @ObservedObject private var timer = CountdownTimer.shared
     @ObservedObject private var battery = Battery.shared
 
-    @AppStorage("cornerRadius") private var corner = 30.0
-    @AppStorage("expandedWidth") private var expW = 620.0
-    @AppStorage("expandedHeight") private var expH = 214.0
-    @AppStorage("style") private var style = "glass"
+    @AppStorage("cornerRadius") private var corner = 34.0
+    @AppStorage("expandedWidth") private var expW = 540.0
+    @AppStorage("expandedHeight") private var expH = 188.0
+    @AppStorage("style") private var style = "solid"
     @AppStorage("tintHex") private var tintHex = "#000000"
     @AppStorage("glassStrength") private var glassStrength = 0.55
     @AppStorage("modMusic") private var modMusic = true
@@ -30,10 +30,7 @@ struct IslandView: View {
 
     var body: some View {
         let expanded = state.expanded
-        let shape = UnevenRoundedRectangle(topLeadingRadius: expanded ? 0 : 0,
-                                           bottomLeadingRadius: expanded ? corner : 14,
-                                           bottomTrailingRadius: expanded ? corner : 14,
-                                           topTrailingRadius: 0, style: .continuous)
+        let shape = NotchShape(top: expanded ? 12 : 6, bottom: expanded ? corner : 14)
         ZStack(alignment: .top) {
             if expanded {
                 PanelView()
@@ -58,7 +55,7 @@ struct IslandView: View {
     }
 
     @ViewBuilder
-    private func background(shape: UnevenRoundedRectangle, expanded: Bool) -> some View {
+    private func background(shape: NotchShape, expanded: Bool) -> some View {
         if expanded && style == "glass" {
             Color.clear.modifier(GlassBackground(shape: shape, strength: glassStrength, tint: Color(hex: tintHex)))
         } else {
